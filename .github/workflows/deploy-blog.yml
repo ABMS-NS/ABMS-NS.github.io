@@ -1,0 +1,82 @@
+# Deploy do Blog para GitHub Pages
+# Roda a cada push na branch main e permite execução manual.
+
+name: Deploy Blog
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# GitHub Pages precisa dessas permissões para publicar o site.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Só um deploy por vez; não cancela um que já começou.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Verificar tipos
+        run: npm run check
+
+      # O repositório é o `ABMS-NS.github.io` (o domínio de usuário do
+      # GitHub). O site é publicado em um subcaminho dele:
+      #   https://abms-ns.github.io/blog/
+      # Por isso o base path do Astro é `/blog/` e a URL do site é a raiz.
+      - name: Calcular URL e base path
+        id: base
+        run: |
+          echo "base=/blog/" >> "$GITHUB_OUTPUT"
+          echo "site=https://${{ github.repository_owner }}.github.io" >> "$GITHUB_OUTPUT"
+
+      - name: Build do blog
+        env:
+          BASE_PATH: ${{ steps.base.outputs.base }}
+          SITE_URL: ${{ steps.base.outputs.site }}
+        run: npm run build
+
+      # O GitHub Pages não tem "base path": o que sobe é o conteúdo do
+      # site a partir da raiz do domínio. Como o site vive em /blog/,
+      # colocamos os arquivos do build dentro de uma pasta `blog/`.
+      # O `.nojekyll` evita que o GitHub trate os arquivos como Jekyll.
+      - name: Empacotar o site dentro de /blog/
+        run: |
+          mkdir -p dist-pages/blog
+          mv apps/blog/dist/* dist-pages/blog/
+          touch dist-pages/.nojekyll
+
+      # Empacota o resultado (dist-pages) para o job de deploy abaixo.
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist-pages
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy para GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,16 @@
+---
+// Rodapé simples: autor, links e ano atual.
+import { withBase } from '../lib/paths';
+
+const year = new Date().getFullYear();
+---
+
+<footer class="site-footer">
+  <div class="container">
+    <p>© {year} · meu arquivo pessoal</p>
+    <p>
+      <a href={withBase('/rss.xml')}>RSS</a> ·
+      <a href={withBase('/about')}>Sobre</a>
+    </p>
+  </div>
+</footer>

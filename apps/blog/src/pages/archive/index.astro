@@ -1,0 +1,51 @@
+---
+// Arquivo cronológico: tudo publicado no site, agrupado por ano.
+import { getCollection } from 'astro:content';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import EntryList from '../../components/EntryList.astro';
+
+// Reunimos posts, projetos e notas em uma única lista ordenada
+// por data. A página de arquivo é um índice completo do arquivo.
+const collections = [
+  ...(await getCollection('posts', ({ data }) => !data.draft)),
+  ...(await getCollection('projects')),
+  ...(await getCollection('notes')),
+];
+
+const entries = collections.sort(
+  (a, b) => b.data.pubDate.getTime() - a.data.pubDate.getTime(),
+);
+
+// We group by year: a publicação mais antiga define o início.
+const byYear = new Map<number, typeof entries>();
+for (const entry of entries) {
+  const year = entry.data.pubDate.getFullYear();
+  if (!byYear.has(year)) byYear.set(year, []);
+  byYear.get(year)!.push(entry);
+}
+
+const years = [...byYear.keys()].sort((a, b) => b - a);
+---
+
+<BaseLayout
+  title="Arquivo"
+  description="Índice cronológico de todo o arquivo pessoal."
+>
+  <section class="container post-header">
+    <h1>Arquivo</h1>
+    <p class="post-meta">
+      Todo o conteúdo do arquivo, ordenado do mais recente ao mais antigo.
+    </p>
+  </section>
+
+  <section class="container">
+    {
+      years.map((year) => (
+        <div class="archive-year">
+          <h2>{year}</h2>
+          <EntryList entries={byYear.get(year)!} />
+        </div>
+      ))
+    }
+  </section>
+</BaseLayout>

@@ -1,0 +1,51 @@
+---
+// Rota dinâmica para notas individuais.
+import { getCollection, render, type CollectionEntry } from 'astro:content';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { longDate } from '../../lib/format';
+import { withBase } from '../../lib/paths';
+
+export async function getStaticPaths() {
+  const notes = await getCollection('notes');
+  return notes.map((note) => ({
+    params: { slug: note.id },
+    props: { note },
+  }));
+}
+
+const { note } = Astro.props as { note: CollectionEntry<'notes'> };
+const { Content } = await render(note);
+
+const { title, description, pubDate, tags } = note.data;
+---
+
+<BaseLayout
+  title={title}
+  description={description}
+  canonicalPath={`/notes/${note.id}`}
+>
+  <article>
+    <header class="container post-header">
+      <h1>{title}</h1>
+      <p class="post-meta">{longDate.format(pubDate)}</p>
+    </header>
+
+    <div class="container post-body">
+      <div class="prose">
+        <Content />
+      </div>
+
+      {
+        tags.length > 0 && (
+          <ul class="tag-list" aria-label="Tags da nota">
+            {tags.map((tag) => (
+              <li>
+                <a href={withBase(`/tags/${tag}`)}>{tag}</a>
+              </li>
+            ))}
+          </ul>
+        )
+      }
+    </div>
+  </article>
+</BaseLayout>

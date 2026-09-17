@@ -1,0 +1,613 @@
+// Interface do Writer (cliente, roda no navegador local).
+//
+// O frontend é TypeScript puro compilado com esbuild — sem framework.
+// CodeMirror cuida do editor e `marked` + DOMPurify do preview.
+// Quando você salva/publica, o código chama a API local (Hono),
+// que escreve os arquivos Markdown e executa o Git.
+
+import './styles.css';
+import { EditorView, basicSetup } from 'codemirror';
+import { EditorState, Prec } from '@codemirror/state';
+import { markdown, markdownKeymap } from '@codemirror/lang-markdown';
+import { languages } from '@codemirror/language-data';
+import { keymap } from '@codemirror/view';
+import { defaultKeymap } from '@codemirror/commands';
+import { marked } from 'marked';
+import DOMPurify from 'dompurify';
+import type { Post, PostListItem, GitStatus, PostMeta } from '../shared/types';
+
+// ------------------------------------------------------------------
+// Estado global da aplicação.
+// ------------------------------------------------------------------
+const state: {
+  posts: PostListItem[];
+  current: Post | null;
+  git: GitStatus | null;
+  filter: string;
+  dirty: { title: boolean; body: boolean; meta: boolean };
+  savedAt: Date | null;
+  tagsDirty: boolean;
+} = {
+  posts: [],
+  current: null,
+  git: null,
+  filter: '',
+  dirty: { title: false, body: false, meta: false },
+  savedAt: null,
+  tagsDirty: false,
+};
+
+// ------------------------------------------------------------------
+// Utilidades
+// ------------------------------------------------------------------
+const $ = <T extends HTMLElement>(sel: string, root: ParentNode = document) =>
+  root.querySelector<T>(sel);
+
+function formatDate(iso: string) {
+  const [y, m, d] = iso.slice(0, 10).split('-');
+  return `${d}/${m}/${y}`;
+}
+
+async function api<T>(method: string, url: string, body?: unknown): Promise<T> {
+  const res = await fetch(url, {
+    method,
+    headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error ?? `Falha ${method} ${url}`);
+  return data as T;
+}
+
+function debounce<T extends (...args: never[]) => void>(fn: T, ms: number) {
+  let t: ReturnType<typeof setTimeout>;
+  return (...args: Parameters<T>) => {
+    clearTimeout(t);
+    t = setTimeout(() => fn(...args), ms);
+  };
+}
+
+// ------------------------------------------------------------------
+// Renderização da interface (DOM puro)
+// ------------------------------------------------------------------
+const app = $('#app')!;
+app.innerHTML = `
+  <header class="topbar">
+    <div class="brand">
+      <strong>Writer</strong>
+      <span class="git-badge" id="git-badge">…</span>
+    </div>
+    <div class="actions">
+      <button id="btn-new" class="ghost">+ Novo</button>
+      <span id="save-state" class="save-state" role="status"></span>
+      <button id="btn-save" class="ghost" disabled>Salvar</button>
+      <button id="btn-publish" class="primary" disabled>Publicar</button>
+    </div>
+  </header>
+
+  <aside class="sidebar">
+    <input id="search" type="search" placeholder="Pesquisar..." aria-label="Pesquisar posts" />
+    <div id="git-panel" class="git-panel"></div>
+    <ul id="post-list" class="post-list"></ul>
+  </aside>
+
+  <main id="editor" class="editor">
+    <div class="empty" id="empty-state">
+      <p>Selecione um post na lista ou crie um novo.</p>
+    </div>
+    <div class="editor-view" id="editor-view" hidden>
+      <input id="field-title" class="title-input" type="text" placeholder="Título do post" aria-label="Título do post" />
+
+      <div class="meta-row">
+        <label>Data
+          <input id="field-date" type="date" />
+        </label>
+        <label class="draft-check">
+          <input id="field-draft" type="checkbox" /> Rascunho
+        </label>
+        <input id="field-tags" type="text" placeholder="Adicionar tag e teclar Enter" aria-label="Adicionar tag" />
+        <ul id="tag-chips" class="tag-chips"></ul>
+      </div>
+
+      <textarea id="field-description" placeholder="Descrição curta (usada nos cards e SEO)" rows="2" aria-label="Descrição"></textarea>
+
+      <div class="split">
+        <div class="pane">
+          <div class="pane-label">Markdown <button id="btn-image" class="ghost tiny">+ imagem</button></div>
+          <input id="file-image" type="file" accept="image/*" hidden />
+          <div id="cm-host" class="cm-host"></div>
+        </div>
+        <div class="pane">
+          <div class="pane-label">Preview</div>
+          <article id="preview" class="preview prose"></article>
+        </div>
+      </div>
+    </div>
+  </main>
+`;
+
+// ---------------------------------------------------------------
+// CodeMirror: editor Markdown
+// ---------------------------------------------------------------
+let cmView: EditorView | null = null;
+
+const editorTheme = EditorView.theme(
+  {
+    '&': { height: '100%' },
+    '.cm-scroller': { fontFamily: 'var(--font-mono)', fontSize: '14px', lineHeight: '1.7' },
+    '.cm-content': { maxWidth: 'none', padding: '12px 16px' },
+    '.cm-line': { padding: '0' },
+    '&.cm-focused': { outline: 'none' },
+    '.cm-gutters': { display: 'none' },
+    '.cm-activeLine': { backgroundColor: 'transparent' },
+  },
+  { dark: true },
+);
+
+function currentBody(): string {
+  return cmView?.state.doc.toString() ?? '';
+}
+
+function createEditor(initialDoc: string, onChange: (doc: string) => void) {
+  // `basicSetup` já inclui undo/redo, seleção, busca, numeração etc.
+  const cm = new EditorView({
+    state: EditorState.create({
+      doc: initialDoc,
+      extensions: [
+        basicSetup,
+        // Atalhos de Markdown: Ctrl+B, Ctrl+I, Ctrl+K, etc.
+        keymap.of(markdownKeymap),
+        // Highlighting de sintaxe Markdown + linguagens para blocos de código
+        markdown({ codeLanguages: languages }),
+        // Ctrl+S salva direto podem evitar depender dos botões
+        Prec.highest(
+          keymap.of([
+            {
+              key: 'Mod-s',
+              run: () => {
+                saveCurrent();
+                return true;
+              },
+            },
+          ]),
+        ),
+        keymap.of(defaultKeymap),
+        editorTheme,
+        // Sincroniza o conteúdo digitado no editor com o estado da app
+        EditorView.updateListener.of((u) => {
+          if (u.docChanged) {
+            state.dirty.body = true;
+            onChange(u.state.doc.toString());
+            scheduleAutosave();
+          }
+        }),
+      ],
+    }),
+    parent: $('#cm-host')!,
+  });
+  return cm;
+}
+
+// ------------------------------------------------------------------
+// Preview Markdown (marked + sanitização DOMPurify)
+// ------------------------------------------------------------------
+const previewEl = $('#preview')!;
+
+marked.setOptions({ gfm: true, breaks: true });
+
+function renderPreview() {
+  const raw = marked.parse(currentBody());
+  // DOMPurify remove qualquer HTML perigoso antes de injetar no DOM.
+  previewEl.innerHTML = DOMPurify.sanitize(
+    typeof raw === 'string' ? raw : String(raw),
+  );
+}
+
+const renderPreviewDebounced = debounce(renderPreview, 250);
+
+// ------------------------------------------------------------------
+// Lista de posts
+// ------------------------------------------------------------------
+const postList = $('#post-list')!;
+const search = $('#search')! as HTMLInputElement;
+
+function renderList() {
+  const q = state.filter.toLowerCase();
+  const shown = state.posts.filter(
+    (p) =>
+      p.title.toLowerCase().includes(q) ||
+      p.tags.some((t) => t.toLowerCase().includes(q)),
+  );
+
+  postList.innerHTML = shown
+    .map(
+      (p) => `
+        <li class="post-item ${p.id === state.current?.id ? 'active' : ''}">
+          <button data-id="${p.id}" class="post-open" title="${p.title}">
+            <span class="dot ${p.draft ? 'draft' : 'pub'}" aria-hidden="true"></span>
+            <span class="title">${escapeHtml(p.title)}</span>
+            <span class="meta">${p.draft ? 'Rascunho' : 'Publicado'} · ${formatDate(p.pubDate)}</span>
+          </button>
+          <div class="actions">
+            <button data-id="${p.id}" data-act="dup" title="Duplicar">⧉</button>
+            <button data-id="${p.id}" data-act="del" title="Excluir">×</button>
+          </div>
+        </li>`,
+    )
+    .join('') || '<li class="empty-list">Nenhum post</li>';
+}
+
+function escapeHtml(s: string) {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+async function loadList() {
+  state.posts = await api<PostListItem[]>('GET', '/api/posts');
+  renderList();
+}
+
+// ------------------------------------------------------------------
+// Abrir / salvar / criar posts
+// ------------------------------------------------------------------
+const fieldTitle = $('#field-title')! as HTMLInputElement;
+const fieldDate = $('#field-date')! as HTMLInputElement;
+const fieldDraft = $('#field-draft')! as HTMLInputElement;
+const fieldDescription = $('#field-description')! as HTMLTextAreaElement;
+const fieldTags = $('#field-tags')! as HTMLInputElement;
+const emptyState = $('#empty-state')!;
+const editorView = $('#editor-view')!;
+const tagChips = $('#tag-chips')!;
+const saveState = $('#save-state')!;
+
+async function openPost(id: string) {
+  state.current = await api<Post>('GET', `/api/post/${encodeURIComponent(id)}`);
+  const p = state.current;
+
+  fieldTitle.value = p.file.title;
+  fieldDate.value = p.file.pubDate;
+  fieldDraft.checked = p.file.draft;
+  fieldDescription.value = p.file.description;
+  renderTags();
+  renderList();
+
+  // Recria o editor com o conteúdo do post (mais simples do que
+  // gerenciar a troca de documento dentro do CodeMirror).
+  if (cmView) cmView.destroy();
+  cmView = createEditor(p.body, () => {
+    renderPreviewDebounced();
+  });
+  renderPreview();
+  state.dirty = { title: false, body: false, meta: false };
+  setSaved(true);
+
+  emptyState.hidden = true;
+  editorView.hidden = false;
+  fieldTitle.focus();
+}
+
+function currentMeta(): PostMeta {
+  return {
+    title: fieldTitle.value.trim() || 'Sem título',
+    description: fieldDescription.value.trim(),
+    pubDate: fieldDate.value || todayClient(),
+    tags: tags,
+    draft: fieldDraft.checked,
+  };
+}
+
+function todayClient() {
+  const d = new Date();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${m}-${dd}`;
+}
+
+async function saveCurrent(): Promise<boolean> {
+  if (!state.current) return false;
+  const meta = currentMeta();
+  try {
+    await api('POST', '/api/post/save', {
+      id: state.current.id,
+      file: meta,
+      body: currentBody(),
+    });
+    state.dirty = { title: false, body: false, meta: false };
+    clearAutosave();
+    setSaved(true);
+    await loadList();
+    return true;
+  } catch (err) {
+    setSaved(false, (err as Error).message);
+    return false;
+  }
+}
+
+async function publishCurrent() {
+  if (!state.current) return;
+  const meta = { ...currentMeta(), draft: false };
+  fieldDraft.checked = false;
+  setSaving('Publicando...');
+  try {
+    const res = await api<{ subject: string }>('POST', '/api/publish', {
+      id: state.current.id,
+      file: meta,
+      body: currentBody(),
+    });
+    setSaved(true, `Publicado ✓ ${res.subject}`);
+    clearAutosave();
+    await loadList();
+    await refreshGit();
+  } catch (err) {
+    setSaved(false, (err as Error).message);
+  }
+}
+
+// ------------------------------------------------------------------
+// Tags
+// ------------------------------------------------------------------
+let tags: string[] = [];
+
+function renderTags() {
+  tagChips.innerHTML = tags
+    .map(
+      (t) => `<li class="chip">${escapeHtml(t)}
+        <button data-rm="${escapeHtml(t)}" aria-label="Remover tag ${escapeHtml(t)}">×</button></li>`,
+    )
+    .join('');
+}
+
+fieldTags.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' && e.key !== ',') return;
+  e.preventDefault();
+  const t = fieldTags.value.trim().replace(/,/, '');
+  if (t && !tags.includes(t)) {
+    tags.push(t);
+    renderTags();
+    state.tagsDirty = true;
+  }
+  fieldTags.value = '';
+});
+
+tagChips.addEventListener('click', (e) => {
+  const btn = (e.target as HTMLElement).closest('[data-rm]') as HTMLElement | null;
+  if (!btn) return;
+  const label = btn.getAttribute('data-rm');
+  tags = tags.filter((t) => t !== label);
+  state.tagsDirty = true;
+  renderTags();
+});
+
+// ------------------------------------------------------------------
+// Botões principais
+// ------------------------------------------------------------------
+$('#btn-new')!.addEventListener('click', async () => {
+  const title = window.prompt('Título do novo post:')?.trim();
+  if (!title) return;
+  const post = await api<Post>('POST', '/api/post', { title });
+  await loadList();
+  await openPost(post.id);
+});
+
+$('#btn-save')!.addEventListener('click', () => saveCurrent());
+$('#btn-publish')!.addEventListener('click', () => publishCurrent());
+
+// ------------------------------------------------------------------
+// Ações por post (duplicar/excluir) — delegação de eventos
+// ------------------------------------------------------------------
+postList.addEventListener('click', async (e) => {
+  const openBtn = (e.target as HTMLElement).closest('.post-open') as HTMLElement | null;
+  if (openBtn) return openPost(openBtn.getAttribute('data-id')!);
+
+  const act = (e.target as HTMLElement).closest('[data-act]') as HTMLElement | null;
+  if (!act) return;
+  const id = act.getAttribute('data-id')!;
+
+  if (act.getAttribute('data-act') === 'dup') {
+    const copy = await api<Post>('POST', '/api/post/duplicate', { id });
+    await loadList();
+    await openPost(copy.id);
+  } else if (act.getAttribute('data-act') === 'del') {
+    if (!window.confirm('Excluir este post? Essa ação não pode ser desfeita.')) return;
+    await api('POST', '/api/post/delete', { id });
+    if (state.current?.id === id) {
+      emptyState.hidden = false;
+      editorView.hidden = true;
+      state.current = null;
+    }
+    await loadList();
+  }
+});
+
+search.addEventListener('input', () => {
+  state.filter = search.value;
+  renderList();
+});
+
+// Marca os campos de metadados como sujos ao editar
+fieldTitle.addEventListener('input', () => {
+  state.dirty.title = true;
+});
+fieldDate.addEventListener('input', () => {
+  state.dirty.meta = true;
+});
+fieldDraft.addEventListener('change', () => {
+  state.dirty.meta = true;
+});
+fieldDescription.addEventListener('input', () => {
+  state.dirty.meta = true;
+});
+
+// ------------------------------------------------------------------
+// Imagens
+// ------------------------------------------------------------------
+$('#btn-image')!.addEventListener('click', () => {
+  $('#file-image')!.click();
+});
+
+$('#file-image')!.addEventListener('change', async (e) => {
+  if (!state.current) return;
+  const file = (e.target as HTMLInputElement).files?.[0];
+  if (!file) return;
+  const form = new FormData();
+  form.append('file', file);
+  const res = await fetch(`/api/post/${state.current.id}/image`, {
+    method: 'POST',
+    body: form,
+  });
+  const data = await res.json();
+  if (!res.ok) return setSaved(false, data.error);
+  // Insere a referência no Markdown na posição do cursor.
+  const snippet = `![${data.alt ?? file.name}](${data.name})`;
+  cmView?.dispatch({ changes: { from: cmView.state.selection.main.from, insert: snippet }, selection: { anchor: cmView.state.selection.main.from + snippet.length } });
+  (e.target as HTMLInputElement).value = '';
+  setSaved(false, '');
+});
+
+// ------------------------------------------------------------------
+// Painel Git
+// ------------------------------------------------------------------
+const gitBadge = $('#git-badge')!;
+const gitPanel = $('#git-panel')!;
+
+async function refreshGit() {
+  try {
+    state.git = await api<GitStatus>('GET', '/api/git/status');
+  } catch {
+    state.git = null;
+  }
+  const g = state.git;
+
+  if (!g) {
+    gitBadge.textContent = 'git';
+    gitPanel.innerHTML = '<p class="git-note">Repositório não encontrado.</p>';
+    return;
+  }
+
+  const clean = g.dirty.length === 0;
+  gitBadge.textContent = `git: ${g.branch}`;
+  gitBadge.className = `git-badge ${clean ? 'ok' : 'dirty'}`;
+
+  gitPanel.innerHTML = `
+    <div class="row ${clean ? 'ok' : 'dirty'}">
+      <span>${clean ? '✓ sincronizado' : `${g.dirty.length} alteração(ões) local(ais)`}</span>
+    </div>
+    ${g.behind > 0 ? `<div class="row warn">→ ${g.behind} commit(s) para puxar</div>` : ''}
+    ${g.ahead > 0 ? `<div class="row warn">↑ ${g.ahead} commit(s) não enviados</div>` : ''}
+    ${
+      g.lastCommit
+        ? `<div class="row muted" title="${g.lastCommit.subject}">
+             último: ${formatDate(g.lastCommit.date.slice(0, 10))} · ${g.lastCommit.hash}
+           </div>`
+        : ''
+    }
+    <div class="row-buttons">
+      <button id="btn-pull" class="ghost tiny">Puxar</button>
+    </div>`;
+
+  $('#btn-pull')?.addEventListener('click', async () => {
+    try {
+      await api('POST', '/api/git/pull');
+      await refreshGit();
+      await loadList();
+      if (state.current) await openPost(state.current.id);
+    } catch (err) {
+      setSaved(false, (err as Error).message);
+    }
+  });
+}
+
+// ------------------------------------------------------------------
+// Estado "Salvo"
+// ------------------------------------------------------------------
+function setSaved(ok: boolean, message?: string) {
+  state.savedAt = ok ? new Date() : null;
+  saveState.textContent = ok
+    ? message ?? `Salvo ✓ ${state.savedAt?.toLocaleTimeString() ?? ''}`
+    : `${message ?? 'Alterações não salvas'} •`;
+  saveState.className = ok ? 'save-state ok' : 'save-state err';
+  const hasDirty = state.dirty.title || state.dirty.body || state.dirty.meta;
+  ($('#btn-save') as HTMLButtonElement).disabled = !(
+    state.current && (hasDirty || state.tagsDirty)
+  );
+  ($('#btn-publish') as HTMLButtonElement).disabled =
+    !state.current || !fieldTitle.value.trim();
+}
+
+function setSaving(msg: string) {
+  saveState.textContent = msg;
+  saveState.className = 'save-state err';
+}
+
+// ------------------------------------------------------------------
+// Autosave local (localStorage) — proteje contra fechamento acidental
+// ------------------------------------------------------------------
+const LS_KEY = 'writer:unsaved';
+let autosaveTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleAutosave() {
+  if (autosaveTimer) clearTimeout(autosaveTimer);
+  autosaveTimer = setTimeout(writeAutosave, 1500);
+}
+
+function writeAutosave() {
+  if (!state.current) return;
+  try {
+    localStorage.setItem(
+      LS_KEY,
+      JSON.stringify({
+        id: state.current.id,
+        title: fieldTitle.value,
+        date: fieldDate.value,
+        draft: fieldDraft.checked,
+        description: fieldDescription.value,
+        tags,
+        body: currentBody(),
+      }),
+    );
+  } catch {
+    /* armazenamento indisponível — seguimos normalmente */
+  }
+}
+
+function clearAutosave() {
+  if (autosaveTimer) clearTimeout(autosaveTimer);
+  localStorage.removeItem(LS_KEY);
+}
+
+// ------------------------------------------------------------------
+// Inicialização
+// ------------------------------------------------------------------
+async function init() {
+  await Promise.all([loadList(), refreshGit()]);
+
+  // Restaura rascunho de sessão anterior, se houver.
+  const saved = localStorage.getItem(LS_KEY);
+  if (saved) {
+    try {
+      const s = JSON.parse(saved);
+      // Reabre o post e aplica o conteúdo não salvo por cima.
+      await openPost(s.id);
+      fieldTitle.value = s.title ?? '';
+      fieldDate.value = s.date ?? '';
+      fieldDraft.checked = s.draft ?? true;
+      fieldDescription.value = s.description ?? '';
+      tags = s.tags ?? [];
+      renderTags();
+      cmView?.dispatch({ changes: { from: 0, to: cmView.state.doc.length, insert: s.body ?? '' } });
+      renderPreview();
+      setSaved(false, 'Retomado do autosave');
+    } catch {
+      localStorage.removeItem(LS_KEY);
+    }
+  }
+
+  renderPreviewDebounced();
+}
+
+// Atualiza os contadores do Git periodicamente.
+setInterval(refreshGit, 20000);
+init();

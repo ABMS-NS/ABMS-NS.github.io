@@ -1,0 +1,68 @@
+---
+// Rota dinâmica de tags: /tags/[tag] lista todos os posts e
+// notas que usam aquela tag.
+import { getCollection } from 'astro:content';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import EntryList from '../../components/EntryList.astro';
+
+export async function getStaticPaths() {
+  // Recolhe todos os posts publicados e notas; pega a união de tags.
+  const posts = await getCollection('posts', ({ data }) => !data.draft);
+  const notes = await getCollection('notes');
+  const allTags = new Set([...posts, ...notes].flatMap((e) => e.data.tags));
+
+  return [...allTags].map((tag) => ({
+    params: { tag: encodeURIComponent(tag) },
+    props: { tag, posts, notes },
+  }));
+}
+
+const { tag, posts, notes } = Astro.props as {
+  tag: string;
+  posts: Awaited<ReturnType<typeof getCollection<'posts'>>>;
+  notes: Awaited<ReturnType<typeof getCollection<'notes'>>>;
+};
+
+const filteredPosts = posts.filter((p) => p.data.tags.includes(tag));
+const filteredNotes = notes.filter((n) => n.data.tags.includes(tag));
+---
+
+<BaseLayout
+  title={`Tag: ${tag}`}
+  description={`Conteúdo marcado com a tag "${tag}".`}
+  canonicalPath={`/tags/${tag}`}
+>
+  <section class="container post-header">
+    <h1>#{tag}</h1>
+    <p class="post-meta">
+      {filteredPosts.length + filteredNotes.length}{' '}
+      {filteredPosts.length + filteredNotes.length === 1 ? 'item' : 'itens'}
+    </p>
+  </section>
+
+  <section class="container">
+    {
+      filteredPosts.length > 0 && (
+        <>
+          <h2 class="section-title">Posts</h2>
+          <EntryList entries={filteredPosts} />
+        </>
+      )
+    }
+
+    {
+      filteredNotes.length > 0 && (
+        <>
+          <h2 class="section-title" style="margin-top: 2.5rem">Notas</h2>
+          <EntryList entries={filteredNotes} />
+        </>
+      )
+    }
+
+    {
+      filteredPosts.length === 0 && filteredNotes.length === 0 && (
+        <p>Nenhum conteúdo encontrado para esta tag.</p>
+      )
+    }
+  </section>
+</BaseLayout>

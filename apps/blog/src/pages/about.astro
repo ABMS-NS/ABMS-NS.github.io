@@ -1,0 +1,47 @@
+---
+// Página "Sobre": quem sou e o que é este arquivo.
+// Conteúdo com placeholders — preencha com suas informações reais.
+import BaseLayout from '../layouts/BaseLayout.astro';
+---
+
+<BaseLayout
+  title="Sobre"
+  description="Sobre mim e sobre este arquivo pessoal."
+>
+  <section class="container post-header">
+    <h1>Sobre</h1>
+  </section>
+
+  <section class="container post-body">
+    <div class="prose">
+      <p class="about-first">
+        Olá! Eu sou o <strong>Alison</strong>, estudante de engenharia da computação
+        com muitos projetos para se concentrar em apenas um. Este é o meu arquivo
+        pessoal na internet: aqui eu documento as coisas que estou aprendendo,
+        construindo e tentando entender.
+      </p>
+
+      <p>
+        O que você encontra aqui é um registro público do meu cotidiano:
+        anotações de estudos, trabalhos da faculdade, projetos pessoais,
+        descobertas sobre programação e Linux, e reflexões soltas.
+      </p>
+
+      <h2>Como este site funciona</h2>
+      <p>
+        Todo o conteúdo vive como arquivos Markdown versionados no Git.
+        Escrevo usando uma ferramenta própria (o Writer) e publico com um
+        simples <code>git push</code> — o GitHub Actions reconstrói o site
+        automaticamente.
+      </p>
+
+      <h2>Contato</h2>
+      <p>
+        Você pode me encontrar em:
+      </p>
+      <ul>
+        <li><a href="https://github.com/ABMS-NS" rel="noopener" target="_blank">GitHub</a></li>
+      </ul>
+    </div>
+  </section>
+</BaseLayout>

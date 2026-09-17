@@ -1,0 +1,74 @@
+---
+// Rota dinâmica para projetos individuais.
+import { getCollection, render, type CollectionEntry } from 'astro:content';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { longDate } from '../../lib/format';
+import { withBase } from '../../lib/paths';
+
+export async function getStaticPaths() {
+  const projects = await getCollection('projects');
+  return projects.map((project) => ({
+    params: { slug: project.id },
+    props: { project },
+  }));
+}
+
+const { project } = Astro.props as { project: CollectionEntry<'projects'> };
+const { Content } = await render(project);
+
+const { title, description, pubDate, tags, status, links } = project.data;
+
+// Rótulos legíveis para o status do projeto.
+const statusLabel: Record<string, string> = {
+  ativo: 'Em andamento',
+  pausado: 'Pausado',
+  concluido: 'Concluído',
+  ideia: 'Ideia',
+};
+---
+
+<BaseLayout
+  title={title}
+  description={description}
+  canonicalPath={`/projects/${project.id}`}
+>
+  <article>
+    <header class="container post-header">
+      <h1>{title}</h1>
+      <p class="post-meta">
+        {statusLabel[status ?? 'ativo']} · desde {longDate.format(pubDate)}
+      </p>
+      {
+        links.length > 0 && (
+          <ul class="tag-list" aria-label="Links do projeto">
+            {links.map((link) => (
+              <li>
+                <a href={link.url} rel="noopener" target="_blank">
+                  {link.label} ↗
+                </a>
+              </li>
+            ))}
+          </ul>
+        )
+      }
+    </header>
+
+    <div class="container post-body">
+      <div class="prose">
+        <Content />
+      </div>
+
+      {
+        tags.length > 0 && (
+          <ul class="tag-list" aria-label="Tags do projeto">
+            {tags.map((tag) => (
+              <li>
+                <a href={withBase(`/tags/${tag}`)}>{tag}</a>
+              </li>
+            ))}
+          </ul>
+        )
+      }
+    </div>
+  </article>
+</BaseLayout>

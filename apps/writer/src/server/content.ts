@@ -1,0 +1,227 @@
+// Operações de leitura/escrita no conteúdo Markdown.
+//
+// Estas funções conversam diretamente com a pasta content/ do
+// monorepo — NÃO há banco de dados. O Git é quem fecha o ciclo:
+// aqui apenas manipulamos arquivos de texto.
+
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { createRequire } from 'node:module';
+import { CONTENT_ROOT, COLLECTIONS } from './fs.ts';
+import type { Post, PostListItem, PostMeta } from '../shared/types.ts';
+
+// gray-matter e js-yaml são CommonJS. No ESM (via tsx), make it simple:
+// carregamos com `require` do Node, garantindo interop correta.
+const require = createRequire(import.meta.url);
+const matter = require('gray-matter') as typeof import('gray-matter');
+const yaml = require('js-yaml') as typeof import('js-yaml');
+
+const POSTS_DIR = path.join(CONTENT_ROOT, COLLECTIONS.posts);
+
+// Converte um título em um slug seguro para nome de arquivo/pasta.
+// Ex.: "Como comecei meu arquivo pessoal" -> "como-comecei-meu-arquivo-pessoal"
+function slugify(title: string): string {
+  return title
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // remove acentos
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)+/g, '')
+    .slice(0, 60);
+}
+
+// Gera a data de hoje no formato YYYY-MM-DD (fuso local).
+export function today(): string {
+  const d = new Date();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${mm}-${dd}`;
+}
+
+// Um post pode existir de duas formas:
+//   content/posts/<slug>.md                (sem imagens)
+//   content/posts/<slug>/index.md          (post-pasta, com imagens junto)
+// Esta função resolve qual dos dois caminhos existe (ou lança erro).
+async function resolvePostFile(id: string): Promise<string> {
+  const asFile = path.join(POSTS_DIR, `${id}.md`);
+  const asFolder = path.join(POSTS_DIR, id, 'index.md');
+  if (await exists(asFile)) return asFile;
+  if (await exists(asFolder)) return asFolder;
+  throw new Error(`Post não encontrado: ${id}`);
+}
+
+async function exists(p: string): Promise<boolean> {
+  try {
+    await fs.access(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Converte um PostMeta (objeto TS) em texto YAML.
+// Campos vazios são omitidos para manter os arquivos limpos.
+// O js-yaml aplica aspas automaticamente quando o valor exige.
+function serializeMeta(meta: PostMeta): string {
+  const clean = {
+    title: meta.title,
+    description: meta.description,
+    pubDate: meta.pubDate,
+    tags: meta.tags.length > 0 ? meta.tags : undefined,
+    draft: meta.draft,
+    ...(meta.updatedDate ? { updatedDate: meta.updatedDate } : {}),
+  };
+  return yaml.dump(clean, { lineWidth: 90 }).trimEnd();
+}
+
+// Lista todos os posts, ordenados do mais recente para o mais antigo.
+export async function listPosts(): Promise<PostListItem[]> {
+  const slugs = (await fs.readdir(POSTS_DIR)).map((name) => {
+    // Se é uma pasta (post com imagens), o nome já é o slug.
+    if (name.endsWith('.md')) return name.slice(0, -3);
+    return name;
+  });
+
+  const items = await Promise.all(
+    slugs.map(async (id) => {
+      const raw = await readPostFile(id);
+      return {
+        id,
+        title: raw.meta.title,
+        pubDate: raw.meta.pubDate,
+        draft: raw.meta.draft,
+        tags: raw.meta.tags,
+        updatedDate: raw.meta.updatedDate,
+      };
+    }),
+  );
+
+  return items.sort((a, b) =>
+    String(b.pubDate).localeCompare(String(a.pubDate)),
+  );
+}
+
+// Lê um post e devolve frontmatter + corpo Markdown.
+export async function readPost(id: string): Promise<Post> {
+  const filePath = await resolvePostFile(id);
+  const raw = await readPostFile(id);
+  return {
+    id,
+    path: path.relative(CONTENT_ROOT, filePath),
+    body: raw.body,
+    file: raw.meta,
+  };
+}
+
+async function readPostFile(id: string): Promise<{ body: string; meta: PostMeta }> {
+  const filePath = await resolvePostFile(id);
+  const text = await fs.readFile(filePath, 'utf-8');
+
+  // `gray-matter` separa o frontmatter (bloco --- ---) do conteúdo.
+  const parsed = matter(text);
+  const data = parsed.data as Record<string, unknown>;
+
+  const meta: PostMeta = {
+    title: stringOr(data.title, 'Sem título'),
+    description: stringOr(data.description, ''),
+    pubDate: stringOr(data.pubDate, today()),
+    tags: Array.isArray(data.tags)
+      ? data.tags.map((t) => String(t))
+      : [],
+    draft: typeof data.draft === 'boolean' ? data.draft : true,
+    ...(data.updatedDate
+      ? { updatedDate: String(data.updatedDate).slice(0, 10) }
+      : {}),
+  };
+
+  return { body: parsed.content.trim(), meta };
+}
+
+// Cria um novo post como pasta (index.md), permitindo adicionar
+// imagens na mesma pasta depois. Nasce como rascunho.
+export async function createPost(title: string): Promise<Post> {
+  const base = slugify(title) || 'sem-titulo';
+  // Garante slugs únicos: adiciona -2, -3... se já existir.
+  let slug = `${today()}-${base}`;
+  let n = 2;
+  while (true) {
+    try {
+      await resolvePostFile(slug);
+      slug = `${today()}-${base}-${n}`;
+      n += 1;
+    } catch {
+      break; // não existe — podemos usar
+    }
+  }
+
+  const dir = path.join(POSTS_DIR, slug);
+  await fs.mkdir(dir, { recursive: true });
+
+  const meta: PostMeta = {
+    title,
+    description: '',
+    pubDate: today(),
+    tags: [],
+    draft: true,
+  };
+
+  await fs.writeFile(
+    path.join(dir, 'index.md'),
+    renderMarkdown(meta, ''),
+    'utf-8',
+  );
+
+  return readPost(slug);
+}
+
+// Salva um post existente (ou cria se o arquivo sumiu).
+export async function savePost(id: string, file: PostMeta, body: string): Promise<Post> {
+  const filePath = await resolvePostFile(id);
+  const date = file.pubDate || today();
+  const meta: PostMeta = {
+    ...file,
+    pubDate: date,
+    updatedDate: file.draft ? file.updatedDate : date,
+  };
+  await fs.writeFile(filePath, renderMarkdown(meta, body), 'utf-8');
+  return readPost(id);
+}
+
+// Compõe o texto final do arquivo: frontmatter + corpo.
+function renderMarkdown(meta: PostMeta, body: string): string {
+  return `---\n${serializeMeta(meta)}\n---\n\n${body.trim()}\n`;
+}
+
+// Exclui o post (arquivo ou pasta inteira, incluindo imagens).
+export async function deletePost(id: string): Promise<void> {
+  const filePath = await resolvePostFile(id);
+  const asFolder = path.join(POSTS_DIR, id);
+  if (await exists(asFolder)) {
+    await fs.rm(asFolder, { recursive: true, force: true });
+  } else {
+    await fs.rm(filePath, { force: true });
+  }
+}
+
+// Duplica um post: cria uma cópia com data de hoje e "(cópia)" no título.
+export async function duplicatePost(id: string): Promise<Post> {
+  const source = await readPost(id);
+  const parts = source.file.title.split(' ');
+  if (parts[parts.length - 1] === '(cópia)') parts.pop();
+  const newTitle = `${parts.join(' ')} (cópia)`;
+  const fresh = await createPost(newTitle);
+  return savePost(fresh.id, { ...fresh.file, title: newTitle }, source.body);
+}
+
+// Guarda uma imagem dentro da pasta do post e devolve o nome do arquivo.
+export async function saveImage(postId: string, filename: string, buffer: Buffer): Promise<string> {
+  const safe = filename.replace(/[^a-zA-Z0-9._-]/g, '-');
+  const folder = path.join(POSTS_DIR, postId);
+  await fs.mkdir(folder, { recursive: true });
+  await fs.writeFile(path.join(folder, safe), buffer);
+  return safe;
+}
+
+function stringOr(v: unknown, fallback: string): string {
+  return typeof v === 'string' && v.trim() !== '' ? v : fallback;
+}

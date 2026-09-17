@@ -1,0 +1,86 @@
+---
+// Esqueleto comum de todas as páginas.
+// Centraliza: meta tags de SEO, header, footer e o script
+// de alternância de tema. Qualquer página nova estende este layout.
+import Header from '../components/Header.astro';
+import Footer from '../components/Footer.astro';
+import { withBase } from '../lib/paths';
+import '../styles/global.css';
+
+interface Props {
+  title: string;
+  description?: string;
+  /** Caminho absoluto da página atual, ex: "/posts/meu-post" */
+  canonicalPath?: string;
+  /** Caminho da imagem para Open Graph (compartilhamento social) */
+  ogImage?: string;
+  type?: 'website' | 'article';
+}
+
+const {
+  title,
+  description = 'Arquivo pessoal: coisas que estou aprendendo, construindo e tentando entender.',
+  canonicalPath = '/',
+  ogImage,
+  type = 'website',
+} = Astro.props;
+
+// `Astro.url` não existe durante o build estático com base configurada;
+// montamos o canonical a partir da URL da página.
+// O 'canonical' e o Open Graph precisam do base path (o site vive em
+// https://abms-ns.github.io/blog/, não na raiz).
+const origin = new URL(Astro.site ?? 'http://localhost:4321').origin;
+const canonical = new URL(withBase(canonicalPath), origin).toString();
+const siteTitle = title ? `${title} · arquivo` : 'arquivo';
+const ogImageUrl = ogImage ?? new URL(withBase('/og.png'), origin).toString();
+---
+
+<!doctype html>
+<html lang="pt-BR" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <title>{siteTitle}</title>
+    <meta name="description" content={description} />
+    <meta name="generator" content={Astro.generator} />
+
+    <!-- Previne flash do tema errado: executa antes do primeiro paint -->
+    <script is:inline>
+      // Definimos o tema o mais cedo possível, antes do CSS render,
+      // para que o visitante não "veja" o tema errado piscar na tela.
+      (function () {
+        const stored = localStorage.getItem('theme');
+        const theme =
+          stored ||
+          (window.matchMedia('(prefers-color-scheme: dark)').matches
+            ? 'dark'
+            : 'light');
+        document.documentElement.dataset.theme = theme;
+      })();
+    </script>
+
+    <!-- Canonical: aponta para a versão oficial da página -->
+    <link rel="canonical" href={canonical} />
+
+    <!-- Open Graph: como a página aparece quando compartilhada -->
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content={type} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={ogImageUrl} />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <link rel="icon" type="image/svg+xml" href={withBase('/favicon.svg')} />
+
+    <!-- Feed de notícias -->
+    <link rel="alternate" type="application/rss+xml" title="Arquivo · RSS" href={withBase('/rss.xml')} />
+  </head>
+  <body>
+    <Header />
+    <main id="main">
+      <slot />
+    </main>
+    <Footer />
+  </body>
+</html>

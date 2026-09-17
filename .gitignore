@@ -1,0 +1,29 @@
+# Dependências
+node_modules/
+
+# Build
+dist/
+.build/
+
+# Astro
+apps/blog/.astro/
+
+# Writer
+apps/writer/dist/
+apps/writer/.esbuild-cache/
+
+# Sistema
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Variáveis de ambiente
+.env
+.env.local
+.env.*.local
