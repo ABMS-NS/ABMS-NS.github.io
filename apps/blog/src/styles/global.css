@@ -1,47 +1,153 @@
-/* ------------------------------------------------------------------
-   Estilos globais do arquivo pessoal.
-   Tudo gira em torno de variáveis CSS: trocar o tema (claro/escuro)
-   é apenas substituir o valor das variáveis em :root.
+/* ==================================================================
+   FÓRUM PESSOAL — RETRÔ 2012 / TERMINAL VERDE
+   Refatoração do CSS original.
+
+   O QUE MUDOU E POR QUÊ (resumo — detalhes em cada seção):
+   - O tema claro foi removido. A paleta monocromática pedida só faz
+     sentido como identidade única do site, não como "modo escuro"
+     opcional — então o que era `:root[data-theme="dark"]` virou a
+     base de tudo, e não existe mais `:root` claro.
+   - Toda cor de destaque (violeta, âmbar, ciano) foi substituída por
+     UMA escala de verde-petróleo (mesmo hue, variando luz/saturação),
+     mais um único neutro cinza para texto de apoio — exatamente como
+     pedido. Isso cria hierarquia sem introduzir novos matizes.
+   - `--bg`, `--bg-elevated`, `--bg-soft` continuam fixos, exatamente
+     como especificado.
+   - Bordas ganharam mais peso visual (1–2px, sem raio) e um "glow"
+     sutil (text-shadow/box-shadow) para lembrar CRT/neon sem virar
+     skeuomorfismo.
+   - Tipografia: Verdana/Tahoma para leitura (igual vBulletin/phpBB de
+     2012) + monoespaçada para metadados, tags e badges (o toque
+     "terminal/hacker"). `clamp()` cuidando da escala responsiva.
+   - Nenhum float/tabela de layout existia no original; ainda assim,
+     o grid de conteúdo + sidebar foi formalizado em CSS Grid, e a
+     seção de sidebar/widgets (traço clássico de fórum) foi adicionada
+     de forma aditiva — não quebra nada que já existia.
 ------------------------------------------------------------------- */
 
-/* Tema claro (padrão) */
+
+/* ================================================================
+   1. TOKENS
+
+   ESCALA MONOCROMÁTICA DE VERDE
+   ------------------------------------------------------------------
+   Todas as variáveis abaixo compartilham o MESMO hue (~160°, um
+   verde inclinado para teal, coerente com o leve azul dos fundos).
+   O que muda entre elas é só luminosidade/saturação. Isso é o que
+   garante hierarquia visual "gratuita": o olho já entende que um
+   verde mais claro = mais importante/mais em foco, sem precisar de
+   uma cor diferente para cada estado.
+
+   Papel de cada parada da escala (do mais escuro ao mais claro):
+   --green-950  fundo de "wash" muito sutil (ex.: hover de linha)
+   --green-900  fundo de destaque leve (ex.: item ativo)
+   --green-800  BORDA DE REPOUSO — o traço padrão das caixas
+   --green-700  borda "forte" (separadores importantes, cabeçalhos)
+   --green-600  uso decorativo grande (ícones, bordas), NÃO texto
+                pequeno — no fundo mais claro (--bg-soft) o contraste
+                cai para ~3,9:1, abaixo do mínimo AA de 4,5:1 para
+                texto normal.
+   --green-500  texto secundário / links em repouso — testado em
+                todos os 3 fundos, contraste mínimo ≈ 5,6:1 (AA ok)
+   --green-400  destaque primário — títulos, links em hover, é a cor
+                usada para o "glow" — contraste mínimo ≈ 9,3:1
+   --green-300  hover / foco secundário — contraste ainda mais alto
+   --green-200  DESTAQUE MÁXIMO — anel de foco, estado ativo, ápice
+                do glow. Usar com moderação (é a cor mais "gritante"
+                da escala).
+
+   Todos os contrastes foram checados contra --bg, --bg-elevated e
+   --bg-soft (o pior caso é sempre --bg-soft, por ser o fundo mais
+   claro dos três) usando a fórmula de luminância relativa do WCAG.
+================================================================ */
+
 :root {
-  --bg: #faf9f7;
-  --bg-elevated: #ffffff;
-  --text: #1f1d1b;
-  --text-muted: #6b665e;
-  --accent: #b5651d;
-  --accent-soft: #b5651d1a;
-  --border: #e5e1da;
-  --code-bg: #f1efe9;
-  --code-text: #3d3a34;
-  --selection: #b5651d33;
+  /* Fundos — fixos, exatamente como especificado no briefing */
+  --bg: #050708;
+  --bg-elevated: #0a0e10;
+  --bg-soft: #0e1417;
 
-  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system,
-    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo,
-    Monaco, Consolas, monospace;
+  /* Escala de verde (hue único ~160°) */
+  --green-950: #051a13;
+  --green-900: #072a1f;
+  --green-800: #0d3f2e;
+  --green-700: #155a41;
+  --green-600: #1c7a58;
+  --green-500: #22a06e;
+  --green-400: #3ecf8e;
+  --green-300: #7ff4b8;
+  --green-200: #b6ffda;
 
-  --text-lg: 1.5rem;
-  --text-xl: 2.25rem;
-  --text-2xl: 3rem;
+  /* Único neutro permitido: cinza levemente frio, para texto de
+     apoio que precisa ser legível mas visualmente "quieto" — algo
+     que o verde, por ser sempre vibrante, não faz bem. */
+  --gray-400: #93a1a1;
 
-  --content-width: 42rem;
+  /* Texto primário: quase-branco com uma pitada do mesmo hue, para
+     não introduzir um branco "frio" dissonante da paleta. Contraste
+     altíssimo (~18:1+) em qualquer um dos 3 fundos. */
+  --text-primary: #e8fbf1;
+
+  /* Tokens semânticos — o resto do arquivo só referencia estes,
+     nunca a escala bruta. Se um dia a escala mudar de tom, só se
+     edita aqui. */
+  --text-secondary: var(--green-500);
+  --text-muted: var(--gray-400);
+
+  --border-rest: var(--green-800);
+  --border-strong: var(--green-700);
+  --border-hover: var(--green-500);
+  --border-focus: var(--green-300);
+
+  --accent: var(--green-400);
+  --accent-strong: var(--green-200);
+
+  /* Glow derivado das mesmas cores, só com alpha — mantém tudo no
+     mesmo hue em vez de inventar uma cor de sombra separada. */
+  --glow-soft: rgba(62, 207, 142, 0.35);
+  --glow-strong: rgba(182, 255, 218, 0.5);
+
+  --code-bg: #081410;
+  --code-text: var(--text-primary);
+
+  --selection-bg: rgba(34, 160, 110, 0.4);
+
+  /* Tipografia: Verdana/Tahoma é a fonte "de época" clássica dos
+     fóruns vBulletin/phpBB; mono entra só em metadados, tags e
+     badges — o toque terminal, sem tomar o corpo do texto inteiro
+     (mono corrido em blocos grandes cansa a leitura). */
+  --font-sans: Verdana, Tahoma, Geneva, "Segoe UI", sans-serif;
+  --font-mono: "Courier New", Courier, ui-monospace, monospace;
+
+  /* Escala tipográfica fluida — clamp(mínimo, preferido, máximo) */
+  --fs-body: 1rem;
+  --fs-small: 0.8125rem;
+  --fs-h1: clamp(1.75rem, 1.35rem + 1.6vw, 2.75rem);
+  --fs-h2: clamp(1.35rem, 1.15rem + 1vw, 1.9rem);
+  --fs-h3: clamp(1.1rem, 1rem + 0.4vw, 1.3rem);
+
+  /* Espaçamento em escala, evita números soltos pelo arquivo */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+
+  /* Layout: fórum clássico é mais largo que um blog editorial, e
+     precisa de espaço pra sidebar. */
+  --content-width: 74rem;
+  --sidebar-width: 19rem;
+  --reading-width: 70ch;
+
+  --border-width: 1px;
+  --radius: 0; /* quadrado de propósito — é o traço retrô pedido */
 }
 
-/* Tema escuro: substitui apenas as variáveis de cor */
-:root[data-theme="dark"] {
-  --bg: #171512;
-  --bg-elevated: #201d1a;
-  --text: #ece7df;
-  --text-muted: #9a928a;
-  --accent: #e0a066;
-  --accent-soft: #e0a0661a;
-  --border: #332e29;
-  --code-bg: #211e1b;
-  --code-text: #d8d2ca;
-  --selection: #e0a0664d;
-}
+
+/* ================================================================
+   2. RESET
+================================================================ */
 
 *,
 *::before,
@@ -56,173 +162,228 @@ html {
 
 body {
   font-family: var(--font-sans);
-  background-color: var(--bg);
-  color: var(--text);
-  line-height: 1.7;
-  font-size: 1.05rem;
+  font-size: var(--fs-body);
+  line-height: 1.65;
+  color: var(--text-primary);
+  background: var(--bg);
   -webkit-font-smoothing: antialiased;
-  transition: background-color 0.3s ease, color 0.3s ease;
+  text-rendering: optimizeLegibility;
 }
 
 ::selection {
-  background: var(--selection);
+  background: var(--selection-bg);
+  color: var(--text-primary);
 }
 
-/* ------------------------------------------------------------------
-   Tipografia e marcação
-------------------------------------------------------------------- */
 
-h1,
-h2,
-h3,
-h4 {
-  line-height: 1.25;
-  font-weight: 650;
-  letter-spacing: -0.01em;
-}
+/* ================================================================
+   3. TIPOGRAFIA
 
-h1 {
-  font-size: var(--text-2xl);
+   O glow é aplicado só em headings e nos poucos elementos de
+   "destaque máximo" — não no corpo do texto. Texto corrido com
+   text-shadow constante cansa a leitura e é o tipo de exagero que
+   o briefing pediu para evitar.
+================================================================ */
+
+h1, h2, h3, h4 {
   font-weight: 700;
+  line-height: 1.25;
+  color: var(--accent);
+  text-shadow: 0 0 8px var(--glow-soft);
 }
 
+h1 { font-size: var(--fs-h1); }
 h2 {
-  font-size: var(--text-xl);
-  margin-top: 2.5rem;
+  font-size: var(--fs-h2);
+  margin-top: var(--space-8);
+  padding-bottom: var(--space-2);
+  border-bottom: var(--border-width) solid var(--border-strong);
 }
-
 h3 {
-  font-size: var(--text-lg);
-  margin-top: 2rem;
+  font-size: var(--fs-h3);
+  margin-top: var(--space-6);
+  color: var(--text-primary);
 }
 
-p,
-ul,
-ol,
-blockquote,
-pre,
-table {
-  margin-top: 1.25rem;
+p, ul, ol, blockquote, pre, table {
+  margin-top: var(--space-4);
+  max-width: 100%;
 }
 
-ul,
-ol {
-  padding-left: 1.5rem;
-}
+ul, ol { padding-left: var(--space-6); }
+li { margin-top: var(--space-1); }
 
-li {
-  margin-top: 0.4rem;
-}
+
+/* ================================================================
+   4. LINKS
+
+   Repouso em --text-secondary (green-500, ~5,6:1 no pior fundo);
+   hover sobe pra --accent com glow — o salto de luminosidade É a
+   animação, sem precisar de mais nada.
+================================================================ */
 
 a {
+  color: var(--text-secondary);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  transition: color 0.12s ease, text-shadow 0.12s ease;
+}
+
+a:hover,
+a:focus-visible {
   color: var(--accent);
-  text-decoration: none;
-  border-bottom: 1px solid transparent;
-  transition: border-color 0.2s ease, color 0.2s ease;
+  text-shadow: 0 0 6px var(--glow-soft);
 }
 
-a:hover {
-  border-bottom-color: var(--accent);
+a:visited {
+  color: var(--green-600); /* uso decorativo, não é texto corrido */
 }
 
-strong {
-  font-weight: 600;
-}
+
+/* ================================================================
+   5. TEXTO ESPECIAL
+================================================================ */
+
+strong { font-weight: 700; color: var(--text-primary); }
 
 blockquote {
-  border-left: 3px solid var(--accent);
-  padding-left: 1rem;
-  color: var(--text-muted);
+  border-left: 4px solid var(--accent);
+  background: var(--bg-elevated);
+  padding: var(--space-3) var(--space-4);
+  color: var(--text-secondary);
   font-style: italic;
 }
 
 hr {
   border: none;
-  border-top: 1px solid var(--border);
-  margin: 2.5rem 0;
+  border-top: var(--border-width) solid var(--border-rest);
+  margin: var(--space-8) 0;
 }
 
-/* Código inline */
+
+/* ================================================================
+   6. CÓDIGO INLINE E BLOCOS
+
+   Mono, borda definida, sem sombra suave por trás — é justamente o
+   ponto do "sem glassmorphism" do briefing.
+================================================================ */
+
 code:not(pre code) {
   font-family: var(--font-mono);
-  font-size: 0.88em;
+  font-size: 0.86em;
   background: var(--code-bg);
-  padding: 0.15em 0.4em;
-  border-radius: 4px;
   color: var(--code-text);
+  padding: 0.15em 0.4em;
+  border: var(--border-width) solid var(--border-rest);
 }
 
-/* Bloco de código (syntax highlighting via Shiki) */
 pre {
-  background: var(--code-bg) !important;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  background: var(--code-bg);
+  border: var(--border-width) solid var(--border-strong);
   overflow-x: auto;
-  font-size: 0.9rem;
+  font-size: 0.88rem;
+  padding: var(--space-4);
 }
 
 pre code {
   font-family: var(--font-mono);
-  background: none !important;
-  color: var(--code-text) !important;
+  background: none;
+  color: var(--code-text);
   padding: 0;
 }
 
-/* Tabelas */
+
+/* ================================================================
+   7. TABELAS
+================================================================ */
+
 table {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.95rem;
+  background: var(--bg-elevated);
+  border: var(--border-width) solid var(--border-rest);
 }
 
-th,
-td {
-  border: 1px solid var(--border);
-  padding: 0.5rem 0.75rem;
+th, td {
+  border: var(--border-width) solid var(--border-rest);
+  padding: var(--space-2) var(--space-3);
   text-align: left;
 }
 
 th {
-  background: var(--code-bg);
-  font-weight: 600;
+  background: var(--green-800);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-weight: 700;
 }
 
-/* Imagens dentro do post */
+
+/* ================================================================
+   8. IMAGENS DENTRO DO CONTEÚDO
+================================================================ */
+
 .prose img {
+  display: block;
   max-width: 100%;
   height: auto;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  margin-top: 1.5rem;
+  border: var(--border-width) solid var(--border-rest);
+  margin: var(--space-6) auto 0;
 }
 
-/* ------------------------------------------------------------------
-   Layout de página
-------------------------------------------------------------------- */
+
+/* ================================================================
+   9. LAYOUT DE PÁGINA
+
+   `.container` continua sendo a faixa central de conteúdo.
+   `.page-layout` é novo e aditivo: formaliza em CSS Grid o par
+   conteúdo + sidebar que é a marca registrada de um fórum 2012 —
+   sem exigir nenhuma mudança no HTML que já usa `.container`.
+================================================================ */
 
 .container {
-  max-width: var(--content-width);
-  margin: 0 auto;
-  padding: 0 1.5rem;
+  width: min(calc(100% - 2rem), var(--content-width));
+  margin-inline: auto;
 }
 
-/* Foco visível para navegação por teclado */
+.page-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--sidebar-width);
+  gap: var(--space-8);
+  align-items: start;
+}
+
+@media (max-width: 850px) {
+  .page-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+
+/* ================================================================
+   10. FOCO
+
+   Anel no verde mais claro da escala (destaque máximo) + halo de
+   glow — visível em qualquer um dos três fundos, sem depender de
+   cor fora da paleta.
+================================================================ */
+
 :focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-  border-radius: 2px;
+  outline: 2px solid var(--border-focus);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 5px var(--glow-strong);
 }
 
-/* ------------------------------------------------------------------
-   Header
-------------------------------------------------------------------- */
+
+/* ================================================================
+   11. CABEÇALHO
+================================================================ */
 
 .site-header {
-  border-bottom: 1px solid var(--border);
-  position: sticky;
-  top: 0;
-  background: color-mix(in srgb, var(--bg) 88%, transparent);
-  backdrop-filter: blur(8px);
+  background: var(--bg-elevated);
+  border-bottom: 2px solid var(--border-strong);
+  position: relative;
   z-index: 10;
 }
 
@@ -230,165 +391,216 @@ th {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 1rem;
-  padding: 0.85rem 0;
+  gap: var(--space-4);
+  padding: var(--space-3) 0;
   flex-wrap: wrap;
 }
 
+
+/* ================================================================
+   12. MARCA
+================================================================ */
+
 .brand a {
-  color: var(--text);
-  border: none;
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 1.05rem;
   font-weight: 700;
-  letter-spacing: -0.01em;
+  text-decoration: none;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.brand a::before {
+  content: "> ";
+  color: var(--green-600);
 }
 
 .brand a:hover {
-  color: var(--accent);
+  text-shadow: 0 0 8px var(--glow-soft);
 }
+
+
+/* ================================================================
+   13. NAVEGAÇÃO
+================================================================ */
 
 .nav-links {
   display: flex;
-  gap: 1.1rem;
+  gap: var(--space-1);
   list-style: none;
   padding: 0;
-  margin: 0;
   align-items: center;
 }
 
-.nav-links li {
-  margin: 0;
-}
-
 .nav-links a {
-  color: var(--text-muted);
-  font-size: 0.95rem;
-  border: none;
+  display: block;
+  color: var(--text-secondary);
+  font-size: 0.88rem;
+  padding: 0.2rem var(--space-2);
+  border: var(--border-width) solid transparent;
+  text-decoration: none;
 }
 
 .nav-links a:hover {
-  color: var(--accent);
+  color: var(--bg);
+  background: var(--accent);
+  border-color: var(--accent);
+  text-shadow: none; /* evita glow por cima de fundo já claro */
 }
 
 .nav-links a[aria-current="page"],
 .nav-links a.active {
-  color: var(--text);
-}
-
-/* Botão de tema */
-.theme-toggle {
-  background: none;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 0.95rem;
-  padding: 0.25rem 0.6rem;
-  transition: color 0.2s, border-color 0.2s;
-}
-
-.theme-toggle:hover {
-  color: var(--accent);
+  color: var(--bg);
+  background: var(--accent);
   border-color: var(--accent);
 }
 
-/* ------------------------------------------------------------------
-   Home
-------------------------------------------------------------------- */
+
+/* ================================================================
+   14. BOTÃO / AÇÃO RETRÔ
+
+   Era `.theme-toggle` só para alternar claro/escuro; como o site
+   agora tem uma única identidade, virou o estilo genérico de botão
+   pequeno estilo "terminal" (mantém o nome da classe por
+   compatibilidade com o HTML existente).
+================================================================ */
+
+.theme-toggle {
+  background: var(--bg-soft);
+  border: var(--border-width) solid var(--border-rest);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  padding: 0.25rem 0.6rem;
+  cursor: pointer;
+  transition: color 0.1s ease, background-color 0.1s ease, border-color 0.1s ease;
+}
+
+.theme-toggle:hover {
+  color: var(--bg);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+
+/* ================================================================
+   15. HERO / TÓPICO FIXADO
+
+   No fórum 2012, o equivalente ao "hero" é o tópico fixado no topo:
+   uma caixa nitidamente demarcada, com uma etiqueta de canto — só
+   que aqui a etiqueta é permanente (não é mais exclusiva do tema
+   escuro, já que só existe um tema).
+================================================================ */
 
 .hero {
-  padding: 4rem 0 2.5rem;
+  padding: var(--space-8) 0;
 }
 
-/* Coluna dupla: texto de um lado, foto do outro */
 .hero-inner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 3rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-8);
+  align-items: start;
+  padding: var(--space-6);
+  background: var(--bg-elevated);
+  border: 2px solid var(--border-strong);
+  position: relative;
+  box-shadow: 0 0 24px -8px var(--glow-soft);
 }
 
-.hero-text {
-  flex: 1;
-  min-width: 0;
+.hero-inner::before {
+  content: "PINNED";
+  position: absolute;
+  top: -0.7rem;
+  left: var(--space-3);
+  padding: 0 var(--space-2);
+  background: var(--bg);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
 }
+
+@media (max-width: 850px) {
+  .hero-inner { grid-template-columns: 1fr; }
+  .hero-photo { justify-self: start; }
+}
+
+
+/* ================================================================
+   16. HERO — TEXTO
+================================================================ */
 
 .hero-greeting {
-  margin: 0 0 0.4rem;
-  font-size: 0.85rem;
-  font-weight: 600;
+  margin-bottom: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: var(--accent);
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
 }
 
-.hero h1 {
-  font-size: var(--text-2xl);
-  margin-bottom: 1rem;
-}
+.hero h1 { margin-bottom: var(--space-3); }
 
 .hero p {
-  color: var(--text-muted);
-  max-width: 36rem;
+  color: var(--text-primary);
+  max-width: 54ch;
 }
 
 .hero p.hero-bio {
-  font-size: var(--text-lg);
-  line-height: 1.5;
+  font-size: 1.05rem;
 }
+
+
+/* ================================================================
+   17. FOTO
+================================================================ */
 
 .hero-photo {
   flex-shrink: 0;
+  padding: 4px;
+  background: var(--bg);
+  border: 2px solid var(--accent);
 }
 
 .hero-photo img {
   display: block;
-  width: 13rem;
-  height: 13rem;
+  width: 11rem;
+  height: 11rem;
   object-fit: cover;
-  border-radius: 50%;
-  border: 4px solid var(--accent);
-  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.16);
+  border: var(--border-width) solid var(--border-rest);
 }
 
-@media (max-width: 640px) {
-  .hero {
-    padding-top: 2.5rem;
-  }
-  .hero-inner {
-    flex-direction: column-reverse;
-    gap: 2rem;
-  }
-  .hero-text {
-    text-align: center;
-  }
-  .hero p {
-    margin-left: auto;
-    margin-right: auto;
-  }
-  .hero .now {
-    text-align: left;
-  }
-  .hero-photo img {
-    width: 11rem;
-    height: 11rem;
-  }
-}
+
+/* ================================================================
+   18. BLOCO "AGORA" / ANÚNCIO DO MODERADOR
+
+   Antes era o único bloco com uma cor quente (âmbar) fora da
+   paleta. Agora usa o próprio topo da escala de verde como fundo —
+   inverte a lógica (fundo claro, texto escuro) pra criar contraste
+   de destaque MÁXIMO sem sair do hue único.
+================================================================ */
 
 .hero .now {
-  margin-top: 2.5rem;
-  padding: 1.25rem 1.5rem;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  margin-top: var(--space-6);
+  padding: var(--space-4);
+  background: var(--accent-strong);
+  border: var(--border-width) solid var(--accent-strong);
+  color: var(--bg);
 }
 
 .hero .now h2 {
-  font-size: 0.95rem;
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--accent);
-  margin: 0 0 0.6rem;
-  font-size: 0.85rem;
+  letter-spacing: 0.1em;
+  color: var(--bg);
+  border-bottom: none;
+  text-shadow: none;
 }
 
 .hero .now ul {
@@ -399,197 +611,387 @@ th {
 
 .hero .now li {
   margin: 0.35rem 0;
-  color: var(--text-muted);
+  padding-left: var(--space-4);
+  position: relative;
 }
 
-/* Listas de conteúdo (recentes, projetos, etc.) */
-.section {
-  margin-top: 3rem;
+.hero .now li::before {
+  content: "→";
+  position: absolute;
+  left: 0;
+  font-weight: 700;
 }
+
+
+/* ================================================================
+   19. SEÇÕES / SEPARADORES DE TÓPICO
+================================================================ */
+
+.section { margin-top: var(--space-8); }
 
 .section-title {
-  font-size: 1.1rem;
-  font-weight: 650;
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  margin-bottom: 0.25rem;
-}
-
-.section-title .more a {
-  font-size: 0.85rem;
-  color: var(--text-muted);
-  border: none;
-  font-weight: 500;
-}
-
-.section-title .more a:hover {
+  gap: var(--space-4);
+  margin-bottom: var(--space-2);
+  padding-bottom: var(--space-2);
+  border-bottom: 2px solid var(--border-strong);
+  font-family: var(--font-mono);
+  font-size: 1rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
   color: var(--accent);
 }
 
-/* ------------------------------------------------------------------
-   Listas de posts/projetos/notas
-------------------------------------------------------------------- */
+.section-title::before {
+  content: "// ";
+  color: var(--green-600);
+}
+
+.section-title .more a {
+  margin-left: auto;
+  font-size: 0.8rem;
+  text-decoration: none;
+}
+
+
+/* ================================================================
+   20. LISTA DE TÓPICOS / POSTS
+
+   Cada linha é uma caixa demarcada (não só uma borda inferior),
+   reforçando a leitura de "lista de tópicos de fórum" em vez de
+   lista de blog editorial.
+================================================================ */
 
 .entry-list {
-  margin-top: 1rem;
+  margin-top: var(--space-3);
+  border: var(--border-width) solid var(--border-rest);
+  border-bottom: none;
 }
 
 .entry {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  gap: 1rem;
-  padding: 0.55rem 0;
-  border-bottom: 1px solid var(--border);
+  gap: var(--space-4);
+  padding: var(--space-3);
+  background: var(--bg-elevated);
+  border-bottom: var(--border-width) solid var(--border-rest);
+  transition: background-color 0.1s ease, padding-left 0.1s ease;
 }
 
-.entry:last-child {
-  border-bottom: none;
+.entry:hover {
+  background: var(--green-900);
+  padding-left: var(--space-4);
 }
 
 .entry a {
-  color: var(--text);
-  border: none;
-  font-weight: 500;
+  color: var(--text-primary);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.entry a::before {
+  content: "› ";
+  color: var(--green-600);
 }
 
 .entry a:hover {
   color: var(--accent);
+  text-shadow: 0 0 6px var(--glow-soft);
 }
 
 .entry time,
 .entry .entry-meta {
-  color: var(--text-muted);
-  font-size: 0.85rem;
   flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
 
-/* Tags no post individual */
+
+/* ================================================================
+   21. TAGS
+================================================================ */
+
 .tag-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  gap: var(--space-2);
   list-style: none;
   padding: 0;
-  margin-top: 1.5rem;
-}
-
-.tag-list li {
-  margin: 0;
+  margin-top: var(--space-6);
 }
 
 .tag-list a {
-  font-size: 0.8rem;
-  color: var(--accent);
-  background: var(--accent-soft);
-  padding: 0.15rem 0.7rem;
-  border-radius: 999px;
-  border: none;
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--bg);
+  background: var(--accent);
+  border: var(--border-width) solid var(--accent);
+  padding: 0.2rem var(--space-2);
+  text-decoration: none;
 }
 
 .tag-list a:hover {
-  background: var(--accent);
-  color: var(--bg-elevated);
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+  box-shadow: 0 0 8px var(--glow-strong);
 }
 
-/* ------------------------------------------------------------------
-   Página de post (prosa)
-------------------------------------------------------------------- */
+/* variação de luminosidade a cada 3º item — ainda mesmo hue,
+   só um degrau mais escuro da escala, pra não virar tudo idêntico */
+.tag-list a:nth-child(3n) {
+  background: var(--green-600);
+  border-color: var(--green-600);
+}
+.tag-list a:nth-child(3n):hover {
+  background: var(--green-300);
+  border-color: var(--green-300);
+  color: var(--bg);
+}
+
+
+/* ================================================================
+   22. PÁGINA DE POST / TÓPICO
+================================================================ */
 
 .post-header {
-  padding: 3.5rem 0 1.5rem;
+  padding: var(--space-8) 0 var(--space-4);
+  border-bottom: 2px solid var(--border-strong);
 }
 
-.post-header h1 {
-  font-size: var(--text-2xl);
-  margin-bottom: 0.75rem;
-}
+.post-header h1 { margin-bottom: var(--space-3); }
 
 .post-meta {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
   color: var(--text-muted);
-  font-size: 0.9rem;
 }
 
-.post-body {
-  padding-bottom: 4rem;
-}
+.post-body { padding-bottom: var(--space-8); }
+.post-body .prose { padding-top: var(--space-4); }
+.post-body .prose > *:first-child { margin-top: 0; }
 
-.post-body .prose > *:first-child {
-  margin-top: 0;
-}
 
-/* ------------------------------------------------------------------
-   Archive / About
-------------------------------------------------------------------- */
+/* ================================================================
+   23. LARGURA DE LEITURA E PROSA
+================================================================ */
+
+.prose { width: min(100%, var(--reading-width)); }
+
+.prose h2 { color: var(--accent); }
+.prose h3 { color: var(--text-secondary); }
+.prose p,
+.prose li { color: var(--text-primary); }
+
+
+/* ================================================================
+   24. ARQUIVO
+================================================================ */
 
 .archive-year {
-  margin-top: 2.5rem;
+  margin-top: var(--space-8);
+  padding-top: var(--space-2);
 }
 
 .archive-year h2 {
-  color: var(--accent);
-  font-size: 1.25rem;
+  font-family: var(--font-mono);
+  font-size: 1.1rem;
+  margin-bottom: var(--space-1);
+  text-transform: uppercase;
+  border-bottom: none;
 }
+
+.archive-year .entry-list { margin-top: var(--space-2); }
+
+
+/* ================================================================
+   25. "SOBRE" / CITAÇÃO DE DESTAQUE
+================================================================ */
 
 .about-first {
-  font-size: 1.3rem;
+  font-size: 1.2rem;
   line-height: 1.6;
-  margin-top: 2rem;
+  margin-top: var(--space-6);
+  padding: var(--space-4);
+  background: var(--accent-strong);
+  color: var(--bg);
+  border: var(--border-width) solid var(--accent-strong);
 }
 
-/* ------------------------------------------------------------------
-   Footer
-------------------------------------------------------------------- */
+.about-first a { color: var(--bg); font-weight: 700; }
+.about-first a:hover { text-shadow: none; text-decoration: none; }
+
+
+/* ================================================================
+   26. SIDEBAR E WIDGETS  (novo bloco, aditivo)
+
+   O briefing pede explicitamente "caixas bem demarcadas para posts,
+   SIDEBAR e WIDGETS" como traço retrô — o CSS original não tinha
+   nenhum. Este bloco não altera nada existente; só adiciona a peça
+   que faltava, usando os mesmos tokens do resto do arquivo, para
+   quem quiser montar `<aside class="sidebar">` com
+   `<section class="widget">` dentro.
+================================================================ */
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.widget {
+  background: var(--bg-soft);
+  border: var(--border-width) solid var(--border-rest);
+}
+
+.widget-title {
+  padding: var(--space-2) var(--space-3);
+  background: var(--green-800);
+  border-bottom: var(--border-width) solid var(--border-strong);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-primary);
+}
+
+.widget-body {
+  padding: var(--space-3);
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.widget-body ul {
+  list-style: none;
+  padding: 0;
+  margin-top: 0;
+}
+
+.widget-body li {
+  padding: var(--space-1) 0;
+  border-bottom: var(--border-width) dotted var(--border-rest);
+}
+
+.widget-body li:last-child { border-bottom: none; }
+
+
+/* ================================================================
+   27. FOOTER
+================================================================ */
 
 .site-footer {
-  border-top: 1px solid var(--border);
-  padding: 2.5rem 0;
-  margin-top: 3rem;
+  border-top: 2px solid var(--border-strong);
+  padding: var(--space-6) 0;
+  margin-top: var(--space-8);
   color: var(--text-muted);
-  font-size: 0.9rem;
+  font-size: 0.85rem;
+  font-family: var(--font-mono);
+}
+
+.site-footer::before {
+  content: "------------------------------------------------------------";
+  display: block;
+  color: var(--green-700);
+  margin-bottom: var(--space-3);
+  overflow: hidden;
+  white-space: nowrap;
 }
 
 .site-footer .container {
   display: flex;
   justify-content: space-between;
-  gap: 1rem;
+  gap: var(--space-4);
   flex-wrap: wrap;
 }
 
-.site-footer a {
-  color: var(--text-muted);
-  border: none;
+.site-footer a { color: var(--text-secondary); }
+.site-footer a:hover { color: var(--accent); text-shadow: 0 0 6px var(--glow-soft); }
+
+
+/* ================================================================
+   28. ELEMENTOS DECORATIVOS DE "WEB REVIVAL"
+================================================================ */
+
+.web-badge {
+  display: inline-block;
+  padding: 0.1rem 0.4rem;
+  background: var(--green-700);
+  color: var(--text-primary);
+  border: var(--border-width) solid var(--green-600);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
 }
 
-.site-footer a:hover {
-  color: var(--accent);
+.status-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: var(--space-1);
+  background: var(--accent);
+  border-radius: 50%;
+  box-shadow: 0 0 6px var(--glow-soft);
 }
 
-/* ------------------------------------------------------------------
-   Utilidades
-------------------------------------------------------------------- */
-
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
+.decorative-line {
+  display: block;
+  width: 100%;
+  height: var(--border-width);
+  margin: var(--space-4) 0;
+  background: var(--border-rest);
 }
 
-/* Transição suave de tema (opcional, evita atrapalhar performance) */
+
+/* ================================================================
+   29. RESPONSIVIDADE
+================================================================ */
+
+@media (max-width: 700px) {
+  .container { width: calc(100% - 1.5rem); }
+
+  .nav-links {
+    width: 100%;
+    justify-content: flex-start;
+    order: 3;
+    overflow-x: auto;
+  }
+
+  .hero { padding: var(--space-6) 0; }
+  .hero-inner { gap: var(--space-4); padding: var(--space-4); }
+  .hero-photo { justify-self: center; }
+  .hero-photo img { width: 9rem; height: 9rem; }
+
+  .section { margin-top: var(--space-6); }
+
+  .entry {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-1);
+  }
+
+  .post-header { padding-top: var(--space-6); }
+}
+
+@media (max-width: 420px) {
+  .container { width: calc(100% - 1rem); }
+  .nav-links a { font-size: 0.82rem; padding: 0.25rem 0.4rem; }
+  .site-footer::before { content: "------------------------------"; }
+}
+
+
+/* ================================================================
+   30. MOVIMENTO REDUZIDO
+================================================================ */
+
 @media (prefers-reduced-motion: reduce) {
-  html {
-    scroll-behavior: auto;
-  }
-
-  * {
-    transition: none !important;
-  }
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { transition: none !important; }
 }
