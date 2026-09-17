@@ -364,15 +364,14 @@ th {
 /* ================================================================
    10. FOCO
 
-   Anel no verde mais claro da escala (destaque máximo) + halo de
-   glow — visível em qualquer um dos três fundos, sem depender de
-   cor fora da paleta.
+   Anel (outline) no verde mais claro da escala (destaque máximo) —
+   visível em qualquer um dos três fundos, sem depender de cor fora
+   da paleta e sem sombra adicional.
 ================================================================ */
 
 :focus-visible {
   outline: 2px solid var(--border-focus);
   outline-offset: 3px;
-  box-shadow: 0 0 0 5px var(--glow-strong);
 }
 
 
@@ -506,7 +505,6 @@ th {
   background: var(--bg-elevated);
   border: 2px solid var(--border-strong);
   position: relative;
-  box-shadow: 0 0 24px -8px var(--glow-soft);
 }
 
 .hero-inner::before {
@@ -740,7 +738,6 @@ th {
 .tag-list a:hover {
   background: var(--accent-strong);
   border-color: var(--accent-strong);
-  box-shadow: 0 0 8px var(--glow-strong);
 }
 
 /* variação de luminosidade a cada 3º item — ainda mesmo hue,
