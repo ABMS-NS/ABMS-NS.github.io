@@ -23,23 +23,12 @@ import {
 import { gitStatus, commit, push, canPush, pull } from './git.ts';
 import { PORT, REPO_ROOT } from './fs.ts';
 
-// Caminho do entry point do cliente (TypeScript). Como o servidor pode
-// rodar do código-fonte (src) ou do bundle (dist), resolvemos sempre a
-// partir de REPO_ROOT, que é a mesma em ambos os casos.
 const clientEntry = path.resolve(REPO_ROOT, 'apps/writer/src/client/main.ts');
 
-// ------------------------------------------------------------------
-// 1. Build do cliente (CodeMirror + Markdown renderer) via esbuild.
-//    O bundle fica em memória: sempre atual, sem passo de build manual.
-//    `npm run writer` já entrega a UI pronta.
-// ------------------------------------------------------------------
 const bundle = await esbuild({
   entryPoints: [clientEntry],
   bundle: true,
   format: 'esm',
-  // `outdir` (mesmo com write:false) informa ao esbuild onde
-  // "colocaria" os arquivos — necessário para ele emitir o CSS
-  // importado pelo main.ts como um arquivo separado.
   outdir: '.esbuild-cache',
   write: false,
   logLevel: 'silent',
@@ -52,13 +41,9 @@ function bundleAsset(ext: 'js' | 'css') {
   return file;
 }
 
-// ------------------------------------------------------------------
-// 2. App Hono
-// ------------------------------------------------------------------
 const app = new Hono();
 app.use('*', cors());
 
-// Página principal — referência o bundle gerado acima.
 app.get('/', (c) =>
   c.html(`<!doctype html>
 <html lang="pt-BR">
@@ -71,6 +56,60 @@ app.get('/', (c) =>
 <body>
   <div id="app"></div>
   <script type="module" src="/client.js"></script>
+  <script>
+    // Pequenos aprimoramentos de interface que não precisam participar
+    // do bundle principal do editor.
+    window.addEventListener('DOMContentLoaded', () => {
+      const toolbar = document.createElement('div');
+      toolbar.className = 'editor-toolbar';
+      toolbar.innerHTML = `
+        <span class="toolbar-label">FORMATAÇÃO</span>
+        <button type="button" data-md="bold" title="Negrito (Ctrl+B)"><b>B</b></button>
+        <button type="button" data-md="italic" title="Itálico (Ctrl+I)"><i>I</i></button>
+        <button type="button" data-md="heading" title="Título">H</button>
+        <button type="button" data-md="list" title="Lista">•</button>
+        <button type="button" data-md="quote" title="Citação">❯</button>
+        <button type="button" data-md="code" title="Código">&lt;/&gt;</button>
+        <span class="toolbar-spacer"></span>
+        <span class="toolbar-hint">Ctrl+S salva</span>
+      `;
+
+      const paneLabel = document.querySelector('.pane-label');
+      if (paneLabel) paneLabel.after(toolbar);
+
+      const sendShortcut = (key) => {
+        const editor = document.querySelector('.cm-content');
+        if (!editor) return;
+        editor.focus();
+        editor.dispatchEvent(new KeyboardEvent('keydown', {
+          key,
+          code: key,
+          bubbles: true,
+          cancelable: true,
+          ctrlKey: true,
+        }));
+      };
+
+      toolbar.querySelectorAll('[data-md]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const action = button.getAttribute('data-md');
+          if (action === 'bold') sendShortcut('b');
+          else if (action === 'italic') sendShortcut('i');
+          else if (action === 'heading') sendShortcut('1');
+          else if (action === 'list') sendShortcut('l');
+          else if (action === 'quote') sendShortcut('q');
+          else if (action === 'code') sendShortcut('`');
+        });
+      });
+
+      const publish = document.querySelector('#btn-publish');
+      publish?.addEventListener('click', (event) => {
+        if (!window.confirm('Publicar este post? Ele será salvo, marcado como publicado e enviado ao GitHub.')) {
+          event.stopImmediatePropagation();
+        }
+      }, true);
+    });
+  </script>
 </body>
 </html>`),
 );
@@ -81,8 +120,6 @@ app.get('/client.js', (c) =>
 app.get('/client.css', (c) =>
   c.body(bundleAsset('css').text, 200, { 'Content-Type': 'text/css' }),
 );
-
-// ---------------- API de posts ----------------
 
 app.get('/api/posts', async (c) => c.json(await listPosts()));
 
@@ -119,8 +156,6 @@ app.post('/api/post/duplicate', async (c) => {
   return c.json(await duplicatePost(String(id)), 201);
 });
 
-// Upload de imagem para a pasta do post.
-// `c.req.formData()` parseia o multipart enviado pelo navegador.
 app.post('/api/post/:id/image', async (c) => {
   const form = await c.req.formData();
   const file = form.get('file');
@@ -132,8 +167,6 @@ app.post('/api/post/:id/image', async (c) => {
   );
   return c.json({ name, alt: path.basename(name, path.extname(name)) }, 201);
 });
-
-// ---------------- API de Git ----------------
 
 app.get('/api/git/status', async (c) => c.json(await gitStatus()));
 
@@ -165,8 +198,6 @@ app.post('/api/git/pull', async (c) => {
 
 app.post('/api/git/check', async (c) => c.json(await canPush()));
 
-// Publish = garantir que o post não é rascunho + commit + push.
-// É o fluxo completo que entrega o conteúdo ao site.
 app.post('/api/publish', async (c) => {
   const { id, file, body } = await c.req.json();
   try {
@@ -181,9 +212,6 @@ app.post('/api/publish', async (c) => {
 
 export default app;
 
-// ------------------------------------------------------------------
-// 3. Subir o servidor (a menos que estejamos em teste).
-// ------------------------------------------------------------------
 if (process.env.NODE_ENV !== 'test') {
   const { serve } = await import('@hono/node-server');
   const srv = serve({ fetch: app.fetch, port: PORT }, (info) => {
