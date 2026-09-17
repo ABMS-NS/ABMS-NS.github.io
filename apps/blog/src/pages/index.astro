@@ -1,17 +1,27 @@
 ---
-// Página inicial: apresentação + posts recentes.
 import { getCollection } from 'astro:content';
 import BaseLayout from '../layouts/BaseLayout.astro';
 import EntryList from '../components/EntryList.astro';
 import { withBase } from '../lib/paths';
 
-// Filtra rascunhos: posts com `draft: true` nunca devem aparecer
-// no site público.
 const posts = (await getCollection('posts'))
   .filter((p) => !p.data.draft)
   .sort((a, b) => b.data.pubDate.getTime() - a.data.pubDate.getTime());
 
 const recentPosts = posts.slice(0, 5);
+
+// Conta as tags utilizadas nos posts
+const tagCounts = new Map<string, number>();
+
+for (const post of posts) {
+  for (const tag of post.data.tags ?? []) {
+    tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1);
+  }
+}
+
+const tags = [...tagCounts.entries()]
+  .sort((a, b) => b[1] - a[1])
+  .slice(0, 10);
 ---
 
 <BaseLayout
@@ -22,14 +32,15 @@ const recentPosts = posts.slice(0, 5);
     <div class="hero-inner">
       <div class="hero-text">
         <p class="hero-greeting">Olá, eu sou o Alison</p>
+
         <p class="hero-bio">
-          Um estudante de engenharia de computação com muitos projetos ao mesmo tempo para administrar.
+          Estudante de engenharia da computação
         </p>
 
         <div class="now">
           <h2>Agora</h2>
           <ul>
-            <li>→ Provavelmente mestrando um RPG ou fazendo um projeto besta</li>
+            <li>Provavelmente mestrando um RPG ou fazendo um projeto besta</li>
           </ul>
         </div>
       </div>
@@ -40,13 +51,144 @@ const recentPosts = posts.slice(0, 5);
     </div>
   </section>
 
-  <div class="container">
-    <section class="section">
-      <h2 class="section-title">
-        Posts recentes
-        <span class="more"><a href={withBase('/posts')}>ver todos →</a></span>
-      </h2>
-      <EntryList entries={recentPosts} />
-    </section>
+  <div class="container home-layout">
+
+    <main class="home-main">
+      <section class="section">
+
+        <h2 class="section-title">
+          Posts recentes
+          <span class="more">
+            <a href={withBase('/posts')}>ver todos →</a>
+          </span>
+        </h2>
+
+        <EntryList entries={recentPosts} />
+
+      </section>
+    </main>
+
+    <aside class="sidebar" aria-label="Barra lateral">
+
+      <!-- SOBRE -->
+      <section class="widget">
+        <h2 class="widget-title">Sobre</h2>
+
+        <div class="widget-body">
+          <p>
+            Este é meu pequeno canto na internet.
+            Um arquivo de coisas que penso, faço,
+            estudo e descubro pelo caminho.
+          </p>
+
+          <a
+            href={withBase('/about')}
+            class="widget-link"
+          >
+            → saber mais
+          </a>
+        </div>
+      </section>
+
+
+      <!-- NAVEGAÇÃO -->
+      <section class="widget">
+        <h2 class="widget-title">Navegação</h2>
+
+        <div class="widget-body">
+          <ul class="sidebar-links">
+            <li>
+              <a href={withBase('/')}>Início</a>
+            </li>
+
+            <li>
+              <a href={withBase('/posts')}>Posts</a>
+            </li>
+
+            <li>
+              <a href={withBase('/archive')}>Arquivo</a>
+            </li>
+
+            <li>
+              <a href={withBase('/about')}>Sobre</a>
+            </li>
+          </ul>
+        </div>
+      </section>
+
+
+      <!-- TAGS -->
+      <section class="widget">
+        <h2 class="widget-title">Tags</h2>
+
+        <div class="widget-body">
+
+          {tags.length > 0 ? (
+            <div class="tag-cloud">
+              {tags.map(([tag, count]) => (
+                <span class="sidebar-tag">
+                  #{tag}
+                  <small>{count}</small>
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p class="widget-muted">
+              Ainda não existem tags.
+            </p>
+          )}
+
+        </div>
+      </section>
+
+
+      <!-- LINKS -->
+      <section class="widget">
+        <h2 class="widget-title">Links</h2>
+
+        <div class="widget-body">
+          <ul class="sidebar-links">
+
+            <li>
+              <a
+                href="https://github.com/ABMS-NS"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                GitHub ↗
+              </a>
+            </li>
+
+            <li>
+              <a href={withBase('/about')}>
+                Projetos
+              </a>
+            </li>
+
+          </ul>
+        </div>
+      </section>
+
+
+      <!-- STATUS -->
+      <section class="widget widget-status">
+        <h2 class="widget-title">Status</h2>
+
+        <div class="widget-body">
+
+          <p>
+            <span class="status-dot"></span>
+            online
+          </p>
+
+          <p class="widget-muted">
+            última atualização: 2026
+          </p>
+
+        </div>
+      </section>
+
+    </aside>
+
   </div>
 </BaseLayout>
