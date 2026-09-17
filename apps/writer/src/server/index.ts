@@ -62,17 +62,17 @@ app.get('/', (c) =>
     window.addEventListener('DOMContentLoaded', () => {
       const toolbar = document.createElement('div');
       toolbar.className = 'editor-toolbar';
-      toolbar.innerHTML = \`
-        <span class="toolbar-label">FORMATAÇÃO</span>
-        <button type="button" data-md="bold" title="Negrito (Ctrl+B)"><b>B</b></button>
-        <button type="button" data-md="italic" title="Itálico (Ctrl+I)"><i>I</i></button>
-        <button type="button" data-md="heading" title="Título">H</button>
-        <button type="button" data-md="list" title="Lista">•</button>
-        <button type="button" data-md="quote" title="Citação">❯</button>
-        <button type="button" data-md="code" title="Código">&lt;/&gt;</button>
-        <span class="toolbar-spacer"></span>
-        <span class="toolbar-hint">Ctrl+S salva</span>
-      \`;
+      toolbar.innerHTML = [
+        '<span class="toolbar-label">FORMATAÇÃO</span>',
+        '<button type="button" data-md="bold" title="Negrito (Ctrl+B)"><b>B</b></button>',
+        '<button type="button" data-md="italic" title="Itálico (Ctrl+I)"><i>I</i></button>',
+        '<button type="button" data-md="heading" title="Título">H</button>',
+        '<button type="button" data-md="list" title="Lista">•</button>',
+        '<button type="button" data-md="quote" title="Citação">❯</button>',
+        '<button type="button" data-md="code" title="Código">&lt;/&gt;</button>',
+        '<span class="toolbar-spacer"></span>',
+        '<span class="toolbar-hint">Ctrl+S salva</span>',
+      ].join('');
 
       const paneLabel = document.querySelector('.pane-label');
       if (paneLabel) paneLabel.after(toolbar);
@@ -98,7 +98,7 @@ app.get('/', (c) =>
           else if (action === 'heading') sendShortcut('1');
           else if (action === 'list') sendShortcut('l');
           else if (action === 'quote') sendShortcut('q');
-          else if (action === 'code') sendShortcut('`');
+          else if (action === 'code') sendShortcut(String.fromCharCode(96));
         });
       });
 
