@@ -23,9 +23,7 @@ apps/
 └── writer/   → Ferramenta de escrita (local)
 
 content/
-├── posts/    → Artigos e tutoriais
-├── projects/ → Documentação de projetos
-└── notes/    → Notas rápidas
+└── posts/    → Artigos e reflexões
 
 docs/         → Documentação do projeto
 ```

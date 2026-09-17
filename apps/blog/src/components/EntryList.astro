@@ -1,22 +1,16 @@
 ---
-// Componente reutilizável para listar entradas do arquivo.
-// Funciona para posts, projetos e notas.
+// Componente reutilizável para listar posts do arquivo.
 //
-// O link de cada item é montado a partir da coleção do próprio
-// item (`/posts/<slug>`, `/projects/<slug>`, `/notes/<slug>`),
-// o que permite usar o componente também em listas mistas,
-// como o arquivo cronológico.
+// O link de cada item aponta para a página do post
+// (`/posts/<slug>`) e mostra a data de publicação.
 import type { CollectionEntry } from 'astro:content';
 import { shortDate } from '../lib/format';
 import { withBase } from '../lib/paths';
 
-type AnyEntry =
-  | CollectionEntry<'posts'>
-  | CollectionEntry<'projects'>
-  | CollectionEntry<'notes'>;
+type PostEntry = CollectionEntry<'posts'>;
 
 interface Props {
-  entries: AnyEntry[];
+  entries: PostEntry[];
   showTags?: boolean;
 }
 
@@ -27,7 +21,7 @@ const { entries, showTags = false } = Astro.props;
   {
     entries.map((entry) => (
       <li class="entry">
-        <a href={withBase(`/${entry.collection}/${entry.id}`)}>{entry.data.title}</a>
+        <a href={withBase(`/posts/${entry.id}`)}>{entry.data.title}</a>
         {
           showTags ? (
             <span class="entry-meta">{entry.data.tags.join(', ')}</span>

@@ -44,25 +44,20 @@ apps/blog/
 
 | Rota | Descrição |
 |------|-----------|
-| `/` | Home — apresentação e conteúdo recente |
+| `/` | Home — apresentação (foto) + posts recentes |
 | `/posts` | Lista de todos os posts |
 | `/posts/[slug]` | Post individual |
-| `/projects` | Lista de projetos |
-| `/projects/[slug]` | Projeto individual |
-| `/notes` | Lista de notas |
 | `/archive` | Arquivo cronológico |
 | `/tags/[tag]` | Posts por tag |
 | `/about` | Sobre |
 
 ## Conteúdo
 
-O blog lê arquivos Markdown de `content/`:
+O site é focado em **posts**, gerenciados pelo Writer:
 
 ```
 content/
-├── posts/       → artigos e tutoriais
-├── projects/    → documentação de projetos
-└── notes/       → notas rápidas
+└── posts/   → artigos e reflexões
 ```
 
 Cada post pode ser um arquivo `.md` ou uma pasta com `index.md` + imagens.

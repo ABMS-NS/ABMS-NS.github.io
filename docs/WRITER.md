@@ -171,7 +171,6 @@ WRITER_PORT=4322 node apps/writer/dist/writer.js
 
 ## Limitações conhecidas
 
-- O Writer gerencia **posts** (a coleção principal). Projetos e notas podem
-  ser editados diretamente nos arquivos Markdown.
+- O Writer gerencia a coleção **posts** — que é todo o conteúdo do site.
 - É uma ferramenta local: não há login, multi-usuário nem backup em nuvem
   fora do Git.

@@ -6,9 +6,7 @@ Documentação sobre a estrutura e organização do conteúdo.
 
 ```
 content/
-├── posts/           → artigos, tutoriais, reflexões
-├── projects/        → documentação de projetos
-└── notes/           → notas rápidas, referências
+└── posts/   → artigos, tutoriais, reflexões (gerenciados pelo Writer)
 ```
 
 ## Posts
@@ -53,61 +51,6 @@ draft: false
 | `pubDate` | date | Sim | Data de publicação |
 | `tags` | array | Não | Tags para categorização |
 | `draft` | boolean | Não | Se `true`, não é publicado |
-
-## Projetos
-
-### Estrutura
-
-```
-content/projects/apeiron.md
-```
-
-### Frontmatter
-
-```yaml
----
-title: "Nome do Projeto"
-description: "Descrição do projeto"
-pubDate: 2026-09-17
-tags:
-  - projeto
-  - astro
-status: "ativo"
-links:
-  - label: "GitHub"
-    url: "https://github.com/..."
----
-```
-
-| Campo | Tipo | Obrigatório | Descrição |
-|-------|------|-------------|-----------|
-| `title` | string | Sim | Nome do projeto |
-| `description` | string | Sim | Descrição curta |
-| `pubDate` | date | Sim | Data de criação |
-| `tags` | array | Não | Tags |
-| `status` | string | Não | "ativo", "pausado", "concluido" |
-| `links` | array | Não | Links externos |
-
-## Notas
-
-### Estrutura
-
-```
-content/notes/git.md
-```
-
-### Frontmatter
-
-```yaml
----
-title: "Git — Notas rápidas"
-description: "Comandos e conceitos do Git"
-pubDate: 2026-09-17
-tags:
-  - git
-  - ferramentas
----
-```
 
 ## Tags
 

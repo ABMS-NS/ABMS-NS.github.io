@@ -7,7 +7,11 @@ import { z } from 'astro/zod';
 // estática para gerar os tipos de `CollectionEntry` — esconder a
 // definição atrás de uma função impede a inferência de tipos.
 
-// Os loaders `glob` apontam para a raiz do monorepo (../../content),
+// O site é focado em posts (gerenciados pelo Writer). Projetos e notas
+// não são mais coleções: se ainda existirem arquivos em content/projects
+// e content/notes, eles são simplesmente ignorados.
+
+// O loader `glob` aponta para a raiz do monorepo (../../content),
 // onde os arquivos Markdown são versionados pelo Git.
 
 const posts = defineCollection({
@@ -32,46 +36,4 @@ const posts = defineCollection({
   }),
 });
 
-const projects = defineCollection({
-  loader: glob({
-    base: '../../content/projects',
-    pattern: '**/*.md',
-    generateId: ({ entry }) =>
-      entry.replace(/\.md$/, '').replace(/\/index$/, ''),
-  }),
-  // Projetos possuem status (ativo, pausado, concluído) e links.
-  schema: z.object({
-    title: z.string(),
-    description: z.string(),
-    pubDate: z.coerce.date(),
-    tags: z.array(z.string()).default([]),
-    status: z.enum(['ativo', 'pausado', 'concluido', 'ideia']).default('ativo'),
-    updatedDate: z.coerce.date().optional(),
-    links: z
-      .array(
-        z.object({
-          label: z.string(),
-          url: z.url(),
-        }),
-      )
-      .default([]),
-  }),
-});
-
-const notes = defineCollection({
-  loader: glob({
-    base: '../../content/notes',
-    pattern: '**/*.md',
-    generateId: ({ entry }) =>
-      entry.replace(/\.md$/, '').replace(/\/index$/, ''),
-  }),
-  // Notas são referências rápidas, sem rascunho nem status.
-  schema: z.object({
-    title: z.string(),
-    description: z.string(),
-    pubDate: z.coerce.date(),
-    tags: z.array(z.string()).default([]),
-  }),
-});
-
-export const collections = { posts, projects, notes };
+export const collections = { posts };

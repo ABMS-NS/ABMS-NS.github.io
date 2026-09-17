@@ -10,9 +10,7 @@ O sistema é composto por dois aplicativos independentes que trabalham com o mes
 ┌──────────────────────────────────────────────────────────────┐
 │                         CONTENT                              │
 │                                                              │
-│  content/posts/    → artigos, tutoriais, reflexões           │
-│  content/projects/ → documentação de projetos                 │
-│  content/notes/    → notas rápidas, referências               │
+│  content/posts/    → artigos, reflexões (posts)                 │
 │                                                              │
 │  Arquivos Markdown versionados no Git                        │
 │  Esta é a FONTE DA VERDADE                                  │
@@ -44,9 +42,9 @@ O sistema é composto por dois aplicativos independentes que trabalham com o mes
 
 ### Blog
 
-- Ler arquivos Markdown de `content/`
-- Gerar páginas HTML estáticas
-- Renderizar tags, arquivos, projetos
+- Ler arquivos Markdown de `content/posts/`
+- Gerar páginas HTML estáticas (home com foto, posts, arquivo, tags, sobre)
+- Renderizar tags e arquivo cronológico
 - Fornecer RSS, sitemap, SEO
 - Ser hospedado no GitHub Pages
 - **NUNCA** escrever no repositório

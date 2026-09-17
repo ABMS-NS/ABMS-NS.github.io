@@ -1,7 +1,5 @@
 ---
-// Página inicial: apresentação + conteúdo recente.
-// Aqui reunimos os dados das três coleções para montar uma visão
-// geral do arquivo.
+// Página inicial: apresentação + posts recentes.
 import { getCollection } from 'astro:content';
 import BaseLayout from '../layouts/BaseLayout.astro';
 import EntryList from '../components/EntryList.astro';
@@ -13,34 +11,35 @@ const posts = (await getCollection('posts'))
   .filter((p) => !p.data.draft)
   .sort((a, b) => b.data.pubDate.getTime() - a.data.pubDate.getTime());
 
-const projects = (await getCollection('projects')).sort(
-  (a, b) => b.data.pubDate.getTime() - a.data.pubDate.getTime(),
-);
-
-const notes = await getCollection('notes');
-
 const recentPosts = posts.slice(0, 5);
-const recentProjects = projects.slice(0, 4);
-const recentNotes = notes.slice(0, 5);
 ---
 
 <BaseLayout
   title="Início"
-  description="Arquivo pessoal: coisas que estou aprendendo, construindo e tentando entender."
+  description="Alison · estudante de engenharia da computação. Arquivo de coisas que estou aprendendo, construindo e tentando entender."
 >
   <section class="container hero">
-    <h1>Olá, eu sou o Alison.</h1>
-    <p>
-      Estudante de engenharia da computação com muitos projetos para se
-      concentrar em apenas um. Este é o meu canto na internet — um arquivo
-      das coisas que estou aprendendo, construindo e tentando entender.
-    </p>
+    <div class="hero-inner">
+      <div class="hero-text">
+        <p class="hero-greeting">Olá, eu sou</p>
+        <h1>Alison</h1>
+        <p class="hero-bio">
+          Estudante de engenharia da computação com muitos projetos para se
+          concentrar em apenas um. Aqui eu documento o que estou aprendendo,
+          construindo e tentando entender.
+        </p>
 
-    <div class="now">
-      <h2>Agora</h2>
-      <ul>
-        <li>→ [o que você está fazendo agora]</li>
-      </ul>
+        <div class="now">
+          <h2>Agora</h2>
+          <ul>
+            <li>→ [o que você está fazendo agora]</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="hero-photo">
+        <img src={withBase('/perfil.svg')} alt="Foto de Alison" />
+      </div>
     </div>
   </section>
 
@@ -51,22 +50,6 @@ const recentNotes = notes.slice(0, 5);
         <span class="more"><a href={withBase('/posts')}>ver todos →</a></span>
       </h2>
       <EntryList entries={recentPosts} />
-    </section>
-
-    <section class="section">
-      <h2 class="section-title">
-        Projetos
-        <span class="more"><a href={withBase('/projects')}>ver todos →</a></span>
-      </h2>
-      <EntryList entries={recentProjects} />
-    </section>
-
-    <section class="section">
-      <h2 class="section-title">
-        Notas
-        <span class="more"><a href={withBase('/notes')}>ver todas →</a></span>
-      </h2>
-      <EntryList entries={recentNotes} />
     </section>
   </div>
 </BaseLayout>
