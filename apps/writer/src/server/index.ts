@@ -62,7 +62,7 @@ app.get('/', (c) =>
     window.addEventListener('DOMContentLoaded', () => {
       const toolbar = document.createElement('div');
       toolbar.className = 'editor-toolbar';
-      toolbar.innerHTML = `
+      toolbar.innerHTML = \`
         <span class="toolbar-label">FORMATAÇÃO</span>
         <button type="button" data-md="bold" title="Negrito (Ctrl+B)"><b>B</b></button>
         <button type="button" data-md="italic" title="Itálico (Ctrl+I)"><i>I</i></button>
@@ -72,7 +72,7 @@ app.get('/', (c) =>
         <button type="button" data-md="code" title="Código">&lt;/&gt;</button>
         <span class="toolbar-spacer"></span>
         <span class="toolbar-hint">Ctrl+S salva</span>
-      `;
+      \`;
 
       const paneLabel = document.querySelector('.pane-label');
       if (paneLabel) paneLabel.after(toolbar);
