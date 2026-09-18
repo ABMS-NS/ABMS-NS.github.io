@@ -29,7 +29,7 @@ const {
 // `Astro.url` não existe durante o build estático com base configurada;
 // montamos o canonical a partir da URL da página.
 // O 'canonical' e o Open Graph precisam do base path (o site vive em
-// https://abms-ns.github.io/blog/, não na raiz).
+// https://molinete-magico.github.io/, não na raiz).
 const origin = new URL(Astro.site ?? 'http://localhost:4321').origin;
 const canonical = new URL(withBase(canonicalPath), origin).toString();
 const siteTitle = title ? `${title} · arquivo` : 'arquivo';
@@ -37,7 +37,7 @@ const ogImageUrl = ogImage ?? new URL(withBase('/og.png'), origin).toString();
 ---
 
 <!doctype html>
-<html lang="pt-BR" data-theme="light">
+<html lang="pt-BR" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -52,11 +52,10 @@ const ogImageUrl = ogImage ?? new URL(withBase('/og.png'), origin).toString();
       // para que o visitante não "veja" o tema errado piscar na tela.
       (function () {
         const stored = localStorage.getItem('theme');
-        const theme =
-          stored ||
-          (window.matchMedia('(prefers-color-scheme: dark)').matches
-            ? 'dark'
-            : 'light');
+        // O escuro é a identidade padrão do site. A preferência salva
+        // pelo visitante tem prioridade, mas a preferência do sistema
+        // não substitui o padrão visual do arquivo.
+        const theme = stored || 'dark';
         document.documentElement.dataset.theme = theme;
       })();
     </script>
