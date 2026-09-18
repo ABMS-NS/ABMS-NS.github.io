@@ -32,7 +32,8 @@
     "win": {
       "target": [
         "portable"
-      ]
+      ],
+      "signAndEditExecutable": false
     },
     "linux": {
       "target": [
