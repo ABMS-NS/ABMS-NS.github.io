@@ -53,14 +53,6 @@ npm run writer
 3. Clique em "Publicar"
 4. O site é atualizado automaticamente
 
-## Tecnologias
-
-- **Astro** — site estático
-- **Hono** — servidor do Writer
-- **CodeMirror** — editor de código
-- **GitHub Pages** — hospedagem
-- **Git** — versionamento
-
 ## License
 
 MIT
