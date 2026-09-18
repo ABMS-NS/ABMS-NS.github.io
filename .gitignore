@@ -12,6 +12,7 @@ apps/blog/.astro/
 apps/writer/dist/
 apps/writer/.esbuild-cache/
 desktop-writer/out/
+desktop-writer/*.zip
 
 # Sistema
 .DS_Store

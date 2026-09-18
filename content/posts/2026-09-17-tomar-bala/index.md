@@ -5,7 +5,7 @@ pubDate: '2026-09-17'
 tags:
   - blog
   - devlog
-  - Rambling
+  - rambling
 draft: false
 updatedDate: '2026-09-17'
 ---
