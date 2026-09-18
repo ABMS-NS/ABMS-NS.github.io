@@ -116,8 +116,8 @@
      fóruns vBulletin/phpBB; mono entra só em metadados, tags e
      badges — o toque terminal, sem tomar o corpo do texto inteiro
      (mono corrido em blocos grandes cansa a leitura). */
-  --font-sans: Verdana, Tahoma, Geneva, "Segoe UI", sans-serif;
-  --font-mono: "Courier New", Courier, ui-monospace, monospace;
+  --font-sans: Verdana, Tahoma, Arial, sans-serif;
+  --font-mono: "Courier New", Courier, monospace;
 
   /* Escala tipográfica fluida — clamp(mínimo, preferido, máximo) */
   --fs-body: 1rem;
@@ -1185,4 +1185,62 @@ th {
   .sidebar {
     grid-template-columns: 1fr;
   }
+}
+
+
+/* ================================================================
+   TEMA CLARO
+   O escuro continua sendo o padrão; [data-theme="light"] é aplicado
+   pelo botão e persistido em localStorage.
+================================================================ */
+
+html[data-theme="light"] {
+  --bg: #f3f5f2;
+  --bg-elevated: #ffffff;
+  --bg-soft: #e7ece8;
+
+  --green-950: #e5eee9;
+  --green-900: #d8e8df;
+  --green-800: #bfd5ca;
+  --green-700: #91b4a3;
+  --green-600: #427d63;
+  --green-500: #286448;
+  --green-400: #185238;
+  --green-300: #0f402c;
+  --green-200: #092f20;
+
+  --gray-400: #5d6863;
+  --text-primary: #17201c;
+
+  --text-secondary: var(--green-500);
+  --text-muted: var(--gray-400);
+
+  --border-rest: var(--green-800);
+  --border-strong: var(--green-700);
+  --border-hover: var(--green-500);
+  --border-focus: var(--green-400);
+
+  --accent: var(--green-400);
+  --accent-strong: var(--green-200);
+
+  --glow-soft: rgba(24, 82, 56, 0.16);
+  --glow-strong: rgba(9, 47, 32, 0.18);
+
+  --code-bg: #e1e9e4;
+  --code-text: var(--text-primary);
+  --selection-bg: rgba(40, 100, 72, 0.22);
+}
+
+/* O segundo conjunto de sidebar styles usa estes aliases. */
+html[data-theme="light"] {
+  --border: var(--border-rest);
+  --primary: var(--accent);
+  --secondary: var(--border-strong);
+}
+
+/* O tema escuro também recebe os aliases usados pela sidebar. */
+html[data-theme="dark"] {
+  --border: var(--border-rest);
+  --primary: var(--accent);
+  --secondary: var(--border-strong);
 }
