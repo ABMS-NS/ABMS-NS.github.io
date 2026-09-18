@@ -1,5 +1,5 @@
 ---
-// Botão que alterna entre tema claro e escuro.
+// Botão que alterna entre os temas escuro (padrão) e claro.
 // O estado é persistido em localStorage; o script `is:inline` do
 // layout já aplicou o tema antes do primeiro paint, então aqui
 // apenas sincronizamos a visualização do botão.
@@ -66,7 +66,7 @@ const labels = {
     sync(current);
   });
 
-  sync(document.documentElement.dataset.theme ?? 'light');
+  sync(document.documentElement.dataset.theme ?? 'dark');
 </script>
 
 <style>
