@@ -7,21 +7,38 @@
 
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { REPO_ROOT } from './fs.ts';
+import { repoRoot } from './fs.ts';
 import type { GitStatus } from '../shared/types.ts';
 
-const exec = promisify(execFile);
+const execFileP = promisify(execFile);
 
 // Executa um comando git na raiz do repositório e devolve o stdout
 // em texto puro. Erros do Git (autenticação, conflitos...) viram
-// exceções com o stderr capturado para exibir na interface.
+// exceções com o stderr incluído na mensagem para exibir na interface
+// e permitir decisões como "nothing to commit".
+function errorWithStderr(err: unknown, cmd: string, stderr: string): Error {
+  if (err instanceof Error) {
+    const msg = stderr.trim() ? `${err.message}\n${stderr.trim()}` : err.message;
+    return new Error(msg);
+  }
+  return new Error(`Command failed: ${cmd}\n${stderr.trim()}`.trim());
+}
+
 async function git(...args: string[]): Promise<string> {
-  const { stdout, stderr } = await exec('git', args, {
-    cwd: REPO_ROOT,
-    maxBuffer: 10 * 1024 * 1024,
-  });
-  if (stderr && !stderr.startsWith('warning:')) process.stderr.write(stderr);
-  return stdout.trim();
+  let result;
+  try {
+    result = await execFileP('git', args, {
+      cwd: repoRoot(),
+      maxBuffer: 10 * 1024 * 1024,
+    });
+  } catch (err) {
+    const stderr = ((err as { stderr?: unknown })?.stderr ?? '') as string;
+    throw errorWithStderr(err, `git ${args.join(' ')}`, stderr);
+  }
+  if (result.stderr && !result.stderr.startsWith('warning:')) {
+    process.stderr.write(result.stderr);
+  }
+  return result.stdout.trim();
 }
 
 export async function gitStatus(): Promise<GitStatus> {

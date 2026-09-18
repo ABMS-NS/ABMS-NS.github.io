@@ -1,13 +1,14 @@
 {
   "name": "writer",
   "type": "module",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "scripts": {
-    "dev": "tsx src/server/index.ts",
+    "dev": "tsx src/server/standalone.ts",
     "check": "tsc --noEmit",
-    "build": "esbuild src/server/index.ts --bundle --platform=node --format=esm --target=node22 --external:esbuild --external:@hono/node-server --outfile=dist/writer.js",
-    "start": "node dist/writer.js"
+    "build:client": "esbuild src/client/main.ts --bundle --outdir=dist/client --format=esm --target=es2020 --minify",
+    "build": "npm run build:client && node build.mjs",
+    "start": "node dist/writer.cjs"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",
@@ -20,7 +21,7 @@
     "dompurify": "^3.4.15",
     "gray-matter": "^4.0.3",
     "hono": "^4.13.8",
-    "js-yaml": "^5.4.2",
+    "js-yaml": "^4.3.2",
     "marked": "^18.0.13"
   },
   "devDependencies": {

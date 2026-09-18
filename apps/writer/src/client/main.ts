@@ -4,6 +4,10 @@
 // CodeMirror cuida do editor e `marked` + DOMPurify do preview.
 // Quando você salva/publica, o código chama a API local (Hono),
 // que escreve os arquivos Markdown e executa o Git.
+//
+// Segurança no cliente: nada de senha em localStorage — o token de
+// sessão vive apenas em memória e operações destrutivas (publicar,
+// enviar ao GitHub, excluir, puxar) pedem a senha de novo a cada vez.
 
 import './styles.css';
 import { EditorView, basicSetup } from 'codemirror';
@@ -14,7 +18,7 @@ import { keymap } from '@codemirror/view';
 import { defaultKeymap } from '@codemirror/commands';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
-import type { Post, PostListItem, GitStatus, PostMeta } from '../shared/types';
+import type { Post, PostListItem, GitStatus, PostMeta, AuthStatus } from '../shared/types';
 
 // ------------------------------------------------------------------
 // Estado global da aplicação.
@@ -37,6 +41,10 @@ const state: {
   tagsDirty: false,
 };
 
+// Token de sessão: apenas em memória. Nunca vai para localStorage.
+let token: string | null = null;
+let authInfo: AuthStatus = { configured: false, idleTimeoutMinutes: 15, recentWindowMinutes: 5 };
+
 // ------------------------------------------------------------------
 // Utilidades
 // ------------------------------------------------------------------
@@ -49,13 +57,21 @@ function formatDate(iso: string) {
 }
 
 async function api<T>(method: string, url: string, body?: unknown): Promise<T> {
-  const res = await fetch(url, {
-    method,
-    headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+  const headers: Record<string, string> = {};
+  let payload: string | undefined;
+  if (body !== undefined) {
+    headers['Content-Type'] = 'application/json';
+    payload = JSON.stringify(body);
+  }
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const res = await fetch(url, { method, headers, body: payload });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error ?? `Falha ${method} ${url}`);
+  if (!res.ok) {
+    const err = data as { code?: string; error?: string; retryAfterSec?: number };
+    if (err.code === 'locked') lockAndShow(err.error);
+    else if (err.code === 'setup-required') showAuth('setup', err.error);
+    throw new Error(err.error ?? `Falha ${method} ${url}`);
+  }
   return data as T;
 }
 
@@ -65,6 +81,14 @@ function debounce<T extends (...args: never[]) => void>(fn: T, ms: number) {
     clearTimeout(t);
     t = setTimeout(() => fn(...args), ms);
   };
+}
+
+function escapeHtml(s: string) {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 // ------------------------------------------------------------------
@@ -82,6 +106,9 @@ app.innerHTML = `
       <span id="save-state" class="save-state" role="status"></span>
       <button id="btn-save" class="ghost" disabled>Salvar</button>
       <button id="btn-publish" class="primary" disabled>Publicar</button>
+      <span class="topbar-divider"></span>
+      <button id="btn-settings" class="ghost" title="Configurações">Config</button>
+      <button id="btn-lock" class="ghost" title="Trancar o Writer">Trancar</button>
     </div>
   </header>
 
@@ -237,14 +264,6 @@ function renderList() {
     .join('') || '<li class="empty-list">Nenhum post</li>';
 }
 
-function escapeHtml(s: string) {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
 async function loadList() {
   state.posts = await api<PostListItem[]>('GET', '/api/posts');
   renderList();
@@ -271,6 +290,7 @@ async function openPost(id: string) {
   fieldDate.value = p.file.pubDate;
   fieldDraft.checked = p.file.draft;
   fieldDescription.value = p.file.description;
+  tags = p.file.tags ?? [];
   renderTags();
   renderList();
 
@@ -329,6 +349,13 @@ async function saveCurrent(): Promise<boolean> {
 async function publishCurrent() {
   if (!state.current) return;
   const meta = { ...currentMeta(), draft: false };
+  const pw = await askPassword({
+    title: 'Publicar no site',
+    message: `O post será salvo, marcado como publicado, commitado e enviado ao GitHub. Autorize com a sua senha.`,
+    confirm: 'Publicar e enviar',
+    danger: true,
+  });
+  if (pw === null) return;
   fieldDraft.checked = false;
   setSaving('Publicando...');
   try {
@@ -336,6 +363,7 @@ async function publishCurrent() {
       id: state.current.id,
       file: meta,
       body: currentBody(),
+      password: pw,
     });
     setSaved(true, `Publicado ✓ ${res.subject}`);
     clearAutosave();
@@ -382,6 +410,82 @@ tagChips.addEventListener('click', (e) => {
 });
 
 // ------------------------------------------------------------------
+// Modais (senha / confirmação)
+// ------------------------------------------------------------------
+function modal(title: string, body: string) {
+  const root = document.createElement('div');
+  root.className = 'modal-backdrop';
+  root.innerHTML = `
+    <div class="modal" role="dialog" aria-modal="true" aria-label="${escapeHtml(title)}">
+      <div class="modal-head"><h2>${escapeHtml(title)}</h2><button class="modal-x" aria-label="Fechar">×</button></div>
+      <div class="modal-body">
+        ${body}
+      </div>
+    </div>`;
+  document.body.appendChild(root);
+  const close = () => root.remove();
+  root.addEventListener('click', (e) => {
+    if (e.target === root) close();
+  });
+  root.querySelector('.modal-x')?.addEventListener('click', close);
+  const firstInput = root.querySelector('input, select, button');
+  if (firstInput instanceof HTMLElement) setTimeout(() => firstInput.focus(), 0);
+  return { root, close };
+}
+
+// Pede a senha com confirmação explícita. Resolve com a senha digitada,
+// ou `null` se o usuário cancelou.
+function askPassword(opts: {
+  title: string;
+  message: string;
+  confirm: string;
+  danger?: boolean;
+}): Promise<string | null> {
+  return new Promise((resolve) => {
+    const { root, close } = modal(
+      opts.title,
+      `
+      <p class="modal-message">${escapeHtml(opts.message)}</p>
+      <div class="modal-msg" id="pw-msg" role="alert"></div>
+      <label class="auth-field">
+        <span>Senha</span>
+        <input id="pw-input" type="password" autocomplete="off" spellcheck="false" autofocus />
+      </label>
+      <div class="modal-actions">
+        <button class="ghost" id="pw-cancel">Cancelar</button>
+        <button class="${opts.danger ? 'danger' : 'primary'}" id="pw-ok">${escapeHtml(opts.confirm)}</button>
+      </div>`,
+    );
+    const pwInput = $('#pw-input', root) as HTMLInputElement;
+    const pwMsg = $('#pw-msg', root)!;
+
+    const finish = () => {
+      close();
+      resolve(pwInput.value);
+    };
+    $('#pw-cancel', root)?.addEventListener('click', () => {
+      close();
+      resolve(null);
+    });
+    $('#pw-ok', root)?.addEventListener('click', (e) => {
+      if (pwInput.value) return finish();
+      pwMsg.textContent = 'Digite a senha para confirmar.';
+      pwInput.focus();
+    });
+    pwInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (pwInput.value) finish();
+        else {
+          pwMsg.textContent = 'Digite a senha para confirmar.';
+          pwInput.focus();
+        }
+      }
+    });
+  });
+}
+
+// ------------------------------------------------------------------
 // Botões principais
 // ------------------------------------------------------------------
 $('#btn-new')!.addEventListener('click', async () => {
@@ -394,6 +498,16 @@ $('#btn-new')!.addEventListener('click', async () => {
 
 $('#btn-save')!.addEventListener('click', () => saveCurrent());
 $('#btn-publish')!.addEventListener('click', () => publishCurrent());
+$('#btn-lock')!.addEventListener('click', async () => {
+  try {
+    await api('POST', '/api/auth/lock');
+  } catch {
+    /* token já inválido — seguimos para a tela de bloqueio */
+  }
+  token = null;
+  showAuth('lock', 'O Writer foi trancado.');
+});
+$('#btn-settings')!.addEventListener('click', () => openSettings());
 
 // ------------------------------------------------------------------
 // Ações por post (duplicar/excluir) — delegação de eventos
@@ -411,14 +525,24 @@ postList.addEventListener('click', async (e) => {
     await loadList();
     await openPost(copy.id);
   } else if (act.getAttribute('data-act') === 'del') {
-    if (!window.confirm('Excluir este post? Essa ação não pode ser desfeita.')) return;
-    await api('POST', '/api/post/delete', { id });
-    if (state.current?.id === id) {
-      emptyState.hidden = false;
-      editorView.hidden = true;
-      state.current = null;
+    const pw = await askPassword({
+      title: 'Excluir post',
+      message: `Excluir "${id}"? O arquivo (e as imagens da pasta) serão removidos — não dá para desfazer.`,
+      confirm: 'Excluir de vez',
+      danger: true,
+    });
+    if (pw === null) return;
+    try {
+      await api('POST', '/api/post/delete', { id, password: pw });
+      if (state.current?.id === id) {
+        emptyState.hidden = false;
+        editorView.hidden = true;
+        state.current = null;
+      }
+      await loadList();
+    } catch (err) {
+      setSaved(false, (err as Error).message);
     }
-    await loadList();
   }
 });
 
@@ -454,8 +578,11 @@ $('#file-image')!.addEventListener('change', async (e) => {
   if (!file) return;
   const form = new FormData();
   form.append('file', file);
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
   const res = await fetch(`/api/post/${state.current.id}/image`, {
     method: 'POST',
+    headers,
     body: form,
   });
   const data = await res.json();
@@ -509,8 +636,14 @@ async function refreshGit() {
     </div>`;
 
   $('#btn-pull')?.addEventListener('click', async () => {
+    const pw = await askPassword({
+      title: 'Puxar do GitHub',
+      message: 'Sincronizar com o repositório remoto exige a sua senha para evitar mudanças não autorizadas.',
+      confirm: 'Puxar',
+    });
+    if (pw === null) return;
     try {
-      await api('POST', '/api/git/pull');
+      await api('POST', '/api/git/pull', { password: pw });
       await refreshGit();
       await loadList();
       if (state.current) await openPost(state.current.id);
@@ -578,36 +711,376 @@ function clearAutosave() {
   localStorage.removeItem(LS_KEY);
 }
 
-// ------------------------------------------------------------------
-// Inicialização
-// ------------------------------------------------------------------
-async function init() {
-  await Promise.all([loadList(), refreshGit()]);
-
-  // Restaura rascunho de sessão anterior, se houver.
+function restoreAutosave() {
   const saved = localStorage.getItem(LS_KEY);
-  if (saved) {
-    try {
-      const s = JSON.parse(saved);
-      // Reabre o post e aplica o conteúdo não salvo por cima.
-      await openPost(s.id);
-      fieldTitle.value = s.title ?? '';
-      fieldDate.value = s.date ?? '';
-      fieldDraft.checked = s.draft ?? true;
-      fieldDescription.value = s.description ?? '';
-      tags = s.tags ?? [];
-      renderTags();
-      cmView?.dispatch({ changes: { from: 0, to: cmView.state.doc.length, insert: s.body ?? '' } });
-      renderPreview();
-      setSaved(false, 'Retomado do autosave');
-    } catch {
-      localStorage.removeItem(LS_KEY);
-    }
+  if (!saved) {
+    renderPreviewDebounced();
+    return;
   }
-
-  renderPreviewDebounced();
+  try {
+    const s = JSON.parse(saved);
+    // Reabre o post e aplica o conteúdo não salvo por cima.
+    openPost(s.id)
+      .then(() => {
+        fieldTitle.value = s.title ?? '';
+        fieldDate.value = s.date ?? '';
+        fieldDraft.checked = s.draft ?? true;
+        fieldDescription.value = s.description ?? '';
+        tags = s.tags ?? [];
+        renderTags();
+        cmView?.dispatch({ changes: { from: 0, to: cmView.state.doc.length, insert: s.body ?? '' } });
+        renderPreview();
+        setSaved(false, 'Retomado do autosave');
+      })
+      .catch(() => localStorage.removeItem(LS_KEY));
+  } catch {
+    localStorage.removeItem(LS_KEY);
+  }
 }
 
-// Atualiza os contadores do Git periodicamente.
+// ------------------------------------------------------------------
+// Tela de senha (setup / bloqueio)
+// ------------------------------------------------------------------
+let authScreen!: HTMLElement;
+let authForm!: HTMLFormElement;
+let authPassword!: HTMLInputElement;
+let authConfirm!: HTMLInputElement;
+let authError!: HTMLElement;
+let authTitle!: HTMLElement;
+let authSub!: HTMLElement;
+let authSubmit!: HTMLButtonElement;
+let authExtra!: HTMLElement;
+let authNote!: HTMLElement;
+let authReset!: HTMLAnchorElement;
+type AuthMode = 'setup' | 'lock';
+
+function mountAuth() {
+  const el = document.createElement('div');
+  el.id = 'auth-screen';
+  el.className = 'auth-screen';
+  el.hidden = true;
+  el.innerHTML = `
+    <form id="auth-form" class="auth-card" autocomplete="on">
+      <div class="auth-prompt" aria-hidden="true">&gt;_</div>
+      <h1 class="auth-title" id="auth-title">Bem-vindo de volta</h1>
+      <p class="auth-sub" id="auth-sub">O Writer está trancado. Digite a senha principal.</p>
+      <div class="modal-msg" id="auth-error" role="alert"></div>
+      <div class="auth-extra" id="auth-extra" hidden>
+        <label class="auth-field">
+          <span>Confirme a senha</span>
+          <input id="auth-confirm" type="password" autocomplete="new-password" spellcheck="false" />
+        </label>
+        <p class="auth-note" id="auth-note"></p>
+      </div>
+      <label class="auth-field">
+        <span>Senha</span>
+        <input id="auth-password" type="password" autocomplete="current-password" spellcheck="false" />
+      </label>
+      <button id="auth-submit" class="primary" type="submit">Entrar</button>
+      <div class="auth-reset"><a href="#" id="auth-reset">Esqueceu a senha?</a></div>
+    </form>`;
+  document.body.appendChild(el);
+
+  authForm = $('#auth-form', el) as HTMLFormElement;
+  authPassword = $('#auth-password', el) as HTMLInputElement;
+  authConfirm = $('#auth-confirm', el) as HTMLInputElement;
+  authError = $('#auth-error', el)!;
+  authTitle = $('#auth-title', el)!;
+  authSub = $('#auth-sub', el)!;
+  authSubmit = $('#auth-submit', el) as HTMLButtonElement;
+  authExtra = $('#auth-extra', el)!;
+  authNote = $('#auth-note', el)!;
+  authReset = $('#auth-reset', el) as HTMLAnchorElement;
+
+  authForm.addEventListener('submit', submitAuth);
+  authReset.addEventListener('click', (e) => {
+    e.preventDefault();
+    resetPasswordFlow();
+  });
+}
+
+function showAuth(mode: AuthMode, message?: string) {
+  const isSetup = mode === 'setup';
+  authExtra.hidden = !isSetup;
+  authTitle.textContent = isSetup ? 'Defina a senha do Writer' : 'Bem-vindo de volta';
+  authSub.textContent = isSetup
+    ? 'Ela protege as ações que mexem no seu arquivo: publicar, enviar ao GitHub e excluir.'
+    : 'O Writer está trancado. Digite a senha principal para continuar.';
+  authSubmit.textContent = isSetup ? 'Criar e entrar' : 'Entrar';
+  authPassword.autocomplete = isSetup ? 'new-password' : 'current-password';
+  authPassword.type = isSetup ? 'password' : 'password';
+  authNote.textContent =
+    'A senha fica apenas na sua máquina como um hash (scrypt). Sem ela, nada sai ao GitHub.';
+  authReset.style.display =
+    authInfo.configured || isSetup ? 'block' : 'none';
+  authScreen.hidden = false;
+  if (message) setAuthError(message);
+  else setAuthError('');
+  authPassword.value = '';
+  authConfirm.value = '';
+  setTimeout(() => authPassword.focus(), 0);
+}
+
+function hideAuth() {
+  authScreen.hidden = true;
+  setAuthError('');
+}
+
+function setAuthError(msg: string) {
+  authError.textContent = msg;
+  authError.hidden = !msg;
+}
+
+function lockAndShow(message?: string) {
+  token = null;
+  showAuth('lock', message);
+}
+
+async function submitAuth(e: SubmitEvent) {
+  e.preventDefault();
+  const pw = authPassword.value;
+  if (authExtra.hidden) {
+    // Bloqueio: destrancar.
+    try {
+      const r = await api<{ token: string }>('POST', '/api/auth/unlock', { password: pw });
+      token = r.token;
+      hideAuth();
+      await resume();
+    } catch (err) {
+      setAuthError((err as Error).message);
+      authPassword.value = '';
+      authPassword.focus();
+    }
+    return;
+  }
+  // Configuração inicial: criar a senha.
+  if (pw.length < 8) return setAuthError('A senha precisa ter ao menos 8 caracteres.');
+  if (pw !== authConfirm.value) return setAuthError('As senhas não conferem.');
+  try {
+    const r = await api<{ token: string }>('POST', '/api/auth/setup', { password: pw });
+    token = r.token;
+    authInfo.configured = true;
+    hideAuth();
+    await resume();
+  } catch (err) {
+    setAuthError((err as Error).message);
+  }
+}
+
+async function resetPasswordFlow() {
+  const { root, close } = modal('Redefinir senha', `
+    <p class="modal-message">
+      Isso apaga a senha atual e o Writer volta para a primeira tela de
+      configuração, onde você define uma nova. Os posts não são tocados —
+      apenas a senha é removida desta máquina.
+    </p>
+    <div class="modal-actions">
+      <button class="ghost" id="reset-cancel">Cancelar</button>
+      <button class="danger" id="reset-ok">Redefinir senha</button>
+    </div>`);
+  $('#reset-cancel', root)?.addEventListener('click', close);
+  $('#reset-ok', root)?.addEventListener('click', async () => {
+    try {
+      await api('POST', '/api/auth/reset');
+    } catch (err) {
+      setAuthError((err as Error).message);
+    }
+    token = null;
+    authInfo.configured = false;
+    close();
+    showAuth('setup');
+  });
+}
+
+// ------------------------------------------------------------------
+// Configurações
+// ------------------------------------------------------------------
+async function openSettings() {
+  let settings: {
+    idleTimeoutMinutes: number;
+    recentWindowMinutes: number;
+    workspace: { root: string; contentRoot: string };
+  } | null = null;
+  try {
+    settings = await api('GET', '/api/settings');
+  } catch {
+    /* sem acesso ainda */
+  }
+  const { root, close } = modal(
+    'Configurações',
+    `
+    <section class="set-group">
+      <h3>Bloqueio por inatividade</h3>
+      <label class="auth-field"><span>Travar depois de</span>
+        <select id="set-idle"></select>
+      </label>
+      <label class="auth-field"><span>Exigir senha de novo em operações (publicar/push/excluir) após</span>
+        <select id="set-recent"></select>
+      </label>
+      <label class="auth-field"><span>Senha para aplicar</span>
+        <input id="set-pw" type="password" autocomplete="off" spellcheck="false" />
+      </label>
+      <div class="modal-msg" id="set-msg" role="alert"></div>
+      <div class="modal-actions">
+        <button class="primary" id="set-apply">Aplicar</button>
+      </div>
+    </section>
+    <section class="set-group">
+      <h3>Trocar a senha</h3>
+      <label class="auth-field"><span>Senha atual</span>
+        <input id="set-cur" type="password" autocomplete="current-password" />
+      </label>
+      <label class="auth-field"><span>Nova senha (mín. 8)</span>
+        <input id="set-new" type="password" autocomplete="new-password" />
+      </label>
+      <label class="auth-field"><span>Confirme a nova senha</span>
+        <input id="set-new2" type="password" autocomplete="new-password" />
+      </label>
+      <div class="modal-msg" id="set-change-msg" role="alert"></div>
+      <div class="modal-actions">
+        <button class="ghost" id="set-change">Trocar senha</button>
+      </div>
+    </section>
+    <section class="set-group">
+      <h3>Pasta de trabalho</h3>
+      <code id="set-workspace" class="set-workspace"></code>
+      <div class="modal-actions">
+        <button class="ghost" id="set-workspace-choose">Trocar pasta (exige senha)</button>
+      </div>
+    </section>`,
+  );
+
+  const setMsg = $('#set-msg', root)!;
+  const setChangeMsg = $('#set-change-msg', root)!;
+  const idleSel = $('#set-idle', root) as HTMLSelectElement;
+  const recentSel = $('#set-recent', root) as HTMLSelectElement;
+
+  idleSel.innerHTML = [
+    [5, '5 minutos'],
+    [15, '15 minutos'],
+    [30, '30 minutos'],
+    [60, '1 hora'],
+    [-1, 'Nunca (não recomendado)'],
+  ]
+    .map(([v, label]) => `<option value="${v}">${label}</option>`)
+    .join('');
+  recentSel.innerHTML = [
+    [1, '1 minuto'],
+    [5, '5 minutos'],
+    [10, '10 minutos'],
+    [30, '30 minutos'],
+    [-1, 'Nunca'],
+  ]
+    .map(([v, label]) => `<option value="${v}">${label}</option>`)
+    .join('');
+
+  if (settings) {
+    idleSel.value = String(settings.idleTimeoutMinutes);
+    recentSel.value = String(settings.recentWindowMinutes);
+    $('#set-workspace', root)!.textContent = settings.workspace.root;
+  }
+
+  $('#set-workspace-choose', root)?.addEventListener('click', async () => {
+    const pw = await askPassword({
+      title: 'Trocar pasta de trabalho',
+      message: 'Escolha a nova pasta do seu arquivo (a que tem a pasta content/). A senha é pedida para autorizar a mudança.',
+      confirm: 'Continuar',
+    });
+    if (pw === null) return;
+    try {
+      const r = await api<{ ok: boolean; root?: string; error?: string }>('POST', '/api/workspace', {
+        password: pw,
+      });
+      if (!r.ok || !r.root) {
+        setMsgState(setMsg, r.error ?? 'Não foi possível trocar a pasta.', false);
+        return;
+      }
+      $('#set-workspace', root)!.textContent = r.root;
+      setMsgState(setMsg, 'Pasta de trabalho trocada. Puxando listagem...', true);
+      await loadList();
+      await refreshGit();
+    } catch (err) {
+      setMsgState(setMsg, (err as Error).message, false);
+    }
+  });
+
+  $('#set-apply', root)?.addEventListener('click', async () => {
+    const pw = ($('#set-pw', root) as HTMLInputElement).value;
+    if (!pw) return setMsgState(setMsg, 'Digite sua senha.', false);
+    try {
+      const r = await api<AuthStatus>('POST', '/api/settings', {
+        idleTimeoutMinutes: Number(idleSel.value),
+        recentWindowMinutes: Number(recentSel.value),
+        password: pw,
+      });
+      authInfo = r;
+      ($('#set-pw', root) as HTMLInputElement).value = '';
+      setMsgState(setMsg, 'Aplicado.', true);
+    } catch (err) {
+      setMsgState(setMsg, (err as Error).message, false);
+    }
+  });
+
+  $('#set-change', root)?.addEventListener('click', async () => {
+    const cur = ($('#set-cur', root) as HTMLInputElement).value;
+    const nw = ($('#set-new', root) as HTMLInputElement).value;
+    const nw2 = ($('#set-new2', root) as HTMLInputElement).value;
+    if (!cur) return setMsgState(setChangeMsg, 'Digite a senha atual.', false);
+    if (nw.length < 8) return setMsgState(setChangeMsg, 'A nova senha precisa de ao menos 8 caracteres.', false);
+    if (nw !== nw2) return setMsgState(setChangeMsg, 'As senhas não conferem.', false);
+    try {
+      await api('POST', '/api/auth/password', { password: cur, newPassword: nw });
+      close();
+      token = null;
+      showAuth('lock', 'Senha trocada. Use a nova senha para destrancar.');
+    } catch (err) {
+      setMsgState(setChangeMsg, (err as Error).message, false);
+    }
+  });
+}
+
+function setMsgState(el: HTMLElement, msg: string, ok: boolean) {
+  el.textContent = msg;
+  el.className = ok ? 'modal-msg ok' : 'modal-msg';
+  el.hidden = false;
+}
+
+// ------------------------------------------------------------------
+// Inicialização / retomada
+// ------------------------------------------------------------------
+async function resume() {
+  state.tagsDirty = false;
+  await Promise.all([loadList(), refreshGit()]);
+  restoreAutosave();
+}
+
+async function pollSession() {
+  if (!token) return;
+  try {
+    await api('GET', '/api/auth/session');
+  } catch {
+    /* api() mostra a tela de bloqueio quando o servidor devolve 401 */
+  }
+}
+
+async function init() {
+  mountAuth();
+  let status: AuthStatus & { sessionValid: boolean };
+  try {
+    status = await api('GET', '/api/auth/status');
+  } catch {
+    showAuth('lock', 'Não consegui falar com o servidor local do Writer.');
+    return;
+  }
+  authInfo = status;
+  if (!status.configured) {
+    showAuth('setup', 'Primeira vez por aqui? Defina uma senha para proteger o seu arquivo.');
+    return;
+  }
+  showAuth('lock');
+}
+
+// Atualiza os contadores do Git e o estado da sessão periodicamente.
 setInterval(refreshGit, 20000);
+setInterval(pollSession, 30000);
 init();

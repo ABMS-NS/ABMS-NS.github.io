@@ -11,6 +11,7 @@ apps/blog/.astro/
 # Writer
 apps/writer/dist/
 apps/writer/.esbuild-cache/
+desktop-writer/out/
 
 # Sistema
 .DS_Store

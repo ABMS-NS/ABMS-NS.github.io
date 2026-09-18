@@ -39,7 +39,7 @@ Hono (server)
 | Servidor   | Hono + TypeScript  | leve, sem build manual (tsx)                |
 | Editor     | CodeMirror 6       | markdown, realce de sintaxe, atalhos        |
 | Preview    | marked + DOMPurify | renderização no navegador + sanitização     |
-| Bundle cli | esbuild (memória)  | cliente TS compilado na hora, sem passo de build |
+| Bundle     | esbuild pré-compilado | cliente servido do disco (dist/client), boot sem compilação |
 
 ### Arquivos
 
@@ -47,15 +47,19 @@ Hono (server)
 apps/writer/
 ├── src/
 │   ├── server/
-│   │   ├── index.ts    → rotas HTTP (posts, git)
-│   │   ├── content.ts  → CRUD dos posts + frontmatter
-│   │   ├── git.ts      → operações Git
-│   │   └── fs.ts       → caminhos (content/, repo)
+│   │   ├── index.ts      → rotas HTTP (posts, git, auth) + middlewares
+│   │   ├── auth.ts       → senha principal, sessões, rate limit
+│   │   ├── content.ts    → CRUD dos posts + frontmatter
+│   │   ├── git.ts        → operações Git
+│   │   ├── fs.ts         → caminhos (content/, repo, dataDir)
+│   │   └── standalone.ts → entry de execução (npm dev / bundle CJS)
 │   ├── client/
-│   │   ├── main.ts     → interface (editor, preview, lista)
-│   │   └── styles.css  → visual
+│   │   ├── main.ts       → interface (editor, preview, lista, tela de senha)
+│   │   └── styles.css    → visual
 │   └── shared/
-│       └── types.ts    → tipos Post, GitStatus, etc.
+│       └── types.ts      → tipos Post, GitStatus, AuthStatus, etc.
+├── electron.d.ts         → tipagem do import dinâmico do safeStorage
+├── build.mjs             → build do bundle CJS (writer.cjs)
 ├── package.json
 └── tsconfig.json
 ```
@@ -120,6 +124,51 @@ Enquanto você digita, o conteúdo é guardado no `localStorage` do navegador
 (debounce de 1.5s). Se a janela fechar sem salvar, o Writer oferece o conteúdo
 de volta ao reabrir.
 
+## Segurança
+
+O Writer é **local**, mas protege as ações que mexem no seu arquivo com uma
+**senha principal** configurada na primeira execução.
+
+### Modelo
+
+- **Senha nunca vai para o disco em texto puro.** Guardamos só um hash
+  `scrypt` com salt próprio. No aplicativo desktop, o arquivo de senha ainda é
+  criptografado pelo `safeStorage` do sistema (DPAPI no Windows, Keychain no
+  macOS).
+- **Sessão em memória.** O token de sessão vive apenas na memória do processo;
+  fechou o app ou o navegador, acabou. Ao abrir, o Writer pede a senha de novo.
+- **Bloqueio por inatividade.** Após X minutos sem interagir (padrão 15), a
+  sessão é encerrada e a tela de senha reaparece. Configurável em
+  **Config → Bloqueio por inatividade**.
+- **Senha fresca em operações sensíveis.** Publicar, push, commit, pull,
+  excluir posts, mudar configuração e trocar de pasta pedem a **digitação da
+  senha** a cada vez, mesmo com a sessão aberta.
+- **Rate limit com backoff exponencial.** Tentativas erradas dobram o tempo de
+  espera (2s → 4s → 8s … até 5 min), travando ataques de força bruta.
+- **Reset de recuperação.** "Esqueceu a senha" apaga a configuração local e
+  volta à primeira tela — os posts não são tocados.
+
+### Fluxos
+
+| Ação                          | Exige                              |
+|-------------------------------|------------------------------------|
+| Abrir o Writer                | senha (tela de bloqueio)           |
+| Listar/abrir/duplicar posts   | sessão ativa                       |
+| Salvar rascunho / enviar imagem | sessão ativa                     |
+| **Publicar**                  | sessão + senha na hora             |
+| **Puxar/commit/push**         | sessão + senha na hora             |
+| **Excluir post**              | sessão + senha na hora             |
+| **Configuração / troca de senha / pasta** | sessão + senha na hora    |
+
+### Garantias adicionais
+
+- A senha não aparece em logs nem viaja em URLs (sempre no corpo, sobre loop-
+  back local).
+- Nenhum token GitHub entra no código: o Git CLI usa as credenciais do sistema.
+- `git push --dry-run` checa a autenticação sem enviar nada.
+- A janela do app desktop roda com `contextIsolation` + `sandbox` ligados e sem
+  `nodeIntegration` — o conteúdo é só a interface HTTP local.
+
 ## Git
 
 O Writer **não guarda credenciais**. Ele apenas executa o Git CLI:
@@ -159,9 +208,34 @@ git remote add origin git@github.com:seu-usuario/seu-repositorio.git
 ## Build de produção
 
 ```bash
-npm run build --workspace=apps/writer   # gera apps/writer/dist/writer.js
-WRITER_PORT=4322 node apps/writer/dist/writer.js
+npm run build --workspace=apps/writer   # gera dist/client/ + dist/writer.cjs
+WRITER_PORT=4322 node apps/writer/dist/writer.cjs
 ```
+
+O bundle CJS (`writer.cjs`) empacota o servidor inteiro e pode ser tanto
+executado com `node` quanto `require()`d pelo app desktop.
+
+## Aplicativo desktop
+
+Em `desktop-writer/` há um embrulho Electron do mesmo servidor (roda o Writer
+no seu processo principal, sem janela `node` extra):
+
+```bash
+cd desktop-writer
+npm install            # baixa o Electron (uma vez)
+npm run build --prefix ../apps/writer   # gera o dist do Writer
+npm start              # roda em janela própria, sem depender de navegador
+```
+
+Para gerar o executável do Windows (portable) ou AppImage do Linux:
+
+```bash
+npm run build:win      # precisa do wine/Windows para assinar/empacotar
+npm run build:linux
+```
+
+Na primeira execução o desktop pede a pasta do seu arquivo (a que tem `content/`).
+Você pode trocar depois em **Config → Trocar pasta**.
 
 ## Como alterar o editor
 
@@ -172,5 +246,8 @@ WRITER_PORT=4322 node apps/writer/dist/writer.js
 ## Limitações conhecidas
 
 - O Writer gerencia a coleção **posts** — que é todo o conteúdo do site.
-- É uma ferramenta local: não há login, multi-usuário nem backup em nuvem
-  fora do Git.
+- A proteção por senha vale para a interface local; quem já tiver acesso
+  físico ao disco pode ler o conteúdo (que é Git, com histórico).
+- A senha é recuperável via "Esqueceu a senha" (apaga o hash local).
+- Primeira execução exige definir a senha; depois disso, toda abertura o Writer
+  começa travado.

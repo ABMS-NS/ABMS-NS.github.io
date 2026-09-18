@@ -138,6 +138,13 @@ textarea:focus-visible {
   min-width: 0;
 }
 
+.topbar-divider {
+  width: 1px;
+  height: 22px;
+  margin: 0 3px;
+  background: var(--green-800);
+}
+
 .save-state {
   max-width: 250px;
   overflow: hidden;
@@ -780,6 +787,232 @@ button:disabled {
 .prose th {
   background: var(--bg-soft);
   color: var(--green-300);
+}
+
+/* ================================================================
+   AUTENTICAÇÃO — tela de senha e bloqueio
+================================================================ */
+
+.auth-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+  background-image:
+    radial-gradient(1200px 500px at 20% -10%, rgba(34, 160, 110, 0.14), transparent 60%),
+    radial-gradient(900px 420px at 110% 110%, rgba(21, 90, 65, 0.14), transparent 60%);
+}
+
+.auth-card {
+  width: min(92vw, 400px);
+  padding: 30px;
+  border: 1px solid var(--border-strong);
+  border-radius: 0;
+  background: var(--bg-elevated);
+  box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.8), 0 0 30px rgba(62, 207, 142, 0.06);
+}
+
+.auth-prompt {
+  margin-bottom: 8px;
+  color: var(--green-300);
+  font-family: var(--font-mono);
+  font-size: 30px;
+  line-height: 1;
+  text-shadow: 0 0 12px rgba(62, 207, 142, 0.45);
+}
+
+.auth-title {
+  margin: 0 0 4px;
+  color: var(--green-400);
+  font-family: var(--font-serif);
+  font-size: 22px;
+  letter-spacing: 0.01em;
+}
+
+.auth-sub {
+  margin: 0 0 16px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.auth-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 12px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.auth-field input,
+.auth-field select {
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--green-800);
+  border-radius: 0;
+  outline: 0;
+  background: var(--bg-soft);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+.auth-field input:focus,
+.auth-field select:focus {
+  border-color: var(--green-400);
+  box-shadow: 0 0 0 1px rgba(62, 207, 142, 0.25);
+}
+
+.auth-extra {
+  margin-bottom: 4px;
+}
+
+.auth-note {
+  margin: 0 0 12px;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.auth-reset {
+  margin-top: 14px;
+  text-align: center;
+}
+
+.auth-reset a {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.auth-reset a:hover { color: var(--green-300); }
+
+/* ================================================================
+   MODAIS
+================================================================ */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(2, 5, 4, 0.72);
+  backdrop-filter: blur(2px);
+}
+
+.modal {
+  width: min(92vw, 460px);
+  max-height: 86vh;
+  overflow-y: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: 0;
+  background: var(--bg-elevated);
+  box-shadow: 5px 5px 0 rgba(0, 0, 0, 0.85), 0 0 34px rgba(62, 207, 142, 0.08);
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--green-800);
+  background: linear-gradient(to bottom, #0d1515, #08100f);
+}
+
+.modal-head h2 {
+  margin: 0;
+  color: var(--green-400);
+  font-family: var(--font-serif);
+  font-size: 16px;
+}
+
+.modal-x {
+  padding: 2px 8px;
+  border: 1px solid var(--green-800);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 16px;
+  line-height: 1.2;
+}
+
+.modal-x:hover { color: var(--danger); border-color: var(--danger); }
+
+.modal-body { padding: 16px; }
+
+.modal-message {
+  margin: 0 0 12px;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.modal-msg {
+  margin-bottom: 10px;
+  color: var(--danger);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.modal-msg.ok { color: var(--green-300); }
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+button.danger {
+  padding: 6px 11px;
+  border: 1px solid #833a3a;
+  border-radius: 0;
+  background: #3d1111;
+  color: #ffd9d9;
+  font-weight: bold;
+}
+
+button.danger:hover:not(:disabled) {
+  border-color: var(--danger);
+  background: #5a1a1a;
+  color: #fff;
+}
+
+/* ---- Configurações ---- */
+
+.set-group { margin-bottom: 18px; padding-bottom: 14px; border-bottom: 1px dotted var(--green-800); }
+.set-group:last-child { margin-bottom: 0; padding-bottom: 0; border-bottom: 0; }
+
+.set-group h3 {
+  margin: 0 0 10px;
+  color: var(--green-400);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.set-workspace {
+  display: block;
+  overflow-x: auto;
+  padding: 7px 9px;
+  border: 1px solid var(--green-800);
+  background: var(--bg-soft);
+  color: var(--green-300);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  white-space: nowrap;
 }
 
 /* ================================================================

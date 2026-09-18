@@ -6,17 +6,21 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { createRequire } from 'node:module';
-import { CONTENT_ROOT, COLLECTIONS } from './fs.ts';
+import matter from 'gray-matter';
+import yaml from 'js-yaml';
+import { contentRoot, postsRoot } from './fs.ts';
 import type { Post, PostListItem, PostMeta } from '../shared/types.ts';
 
-// gray-matter e js-yaml são CommonJS. No ESM (via tsx), make it simple:
-// carregamos com `require` do Node, garantindo interop correta.
-const require = createRequire(import.meta.url);
-const matter = require('gray-matter') as typeof import('gray-matter');
-const yaml = require('js-yaml') as typeof import('js-yaml');
-
-const POSTS_DIR = path.join(CONTENT_ROOT, COLLECTIONS.posts);
+// O gray-matter traz um parse YAML baseado em `safeLoad` (removido no
+// js-yaml 4+). Passamos nossos próprios engines para usar `load`/`dump`.
+const MATTER_OPTIONS = {
+  engines: {
+    yaml: {
+      parse: (input: string) => (yaml.load(input) as object) ?? {},
+      stringify: (data: object) => yaml.dump(data),
+    },
+  },
+};
 
 // Converte um título em um slug seguro para nome de arquivo/pasta.
 // Ex.: "Como comecei meu arquivo pessoal" -> "como-comecei-meu-arquivo-pessoal"
@@ -43,8 +47,8 @@ export function today(): string {
 //   content/posts/<slug>/index.md          (post-pasta, com imagens junto)
 // Esta função resolve qual dos dois caminhos existe (ou lança erro).
 async function resolvePostFile(id: string): Promise<string> {
-  const asFile = path.join(POSTS_DIR, `${id}.md`);
-  const asFolder = path.join(POSTS_DIR, id, 'index.md');
+  const asFile = path.join(postsRoot(), `${id}.md`);
+  const asFolder = path.join(postsRoot(), id, 'index.md');
   if (await exists(asFile)) return asFile;
   if (await exists(asFolder)) return asFolder;
   throw new Error(`Post não encontrado: ${id}`);
@@ -76,7 +80,7 @@ function serializeMeta(meta: PostMeta): string {
 
 // Lista todos os posts, ordenados do mais recente para o mais antigo.
 export async function listPosts(): Promise<PostListItem[]> {
-  const slugs = (await fs.readdir(POSTS_DIR)).map((name) => {
+  const slugs = (await fs.readdir(postsRoot())).map((name) => {
     // Se é uma pasta (post com imagens), o nome já é o slug.
     if (name.endsWith('.md')) return name.slice(0, -3);
     return name;
@@ -107,7 +111,7 @@ export async function readPost(id: string): Promise<Post> {
   const raw = await readPostFile(id);
   return {
     id,
-    path: path.relative(CONTENT_ROOT, filePath),
+    path: path.relative(contentRoot(), filePath),
     body: raw.body,
     file: raw.meta,
   };
@@ -118,7 +122,7 @@ async function readPostFile(id: string): Promise<{ body: string; meta: PostMeta 
   const text = await fs.readFile(filePath, 'utf-8');
 
   // `gray-matter` separa o frontmatter (bloco --- ---) do conteúdo.
-  const parsed = matter(text);
+  const parsed = matter(text, MATTER_OPTIONS);
   const data = parsed.data as Record<string, unknown>;
 
   const meta: PostMeta = {
@@ -154,7 +158,7 @@ export async function createPost(title: string): Promise<Post> {
     }
   }
 
-  const dir = path.join(POSTS_DIR, slug);
+  const dir = path.join(postsRoot(), slug);
   await fs.mkdir(dir, { recursive: true });
 
   const meta: PostMeta = {
@@ -195,7 +199,7 @@ function renderMarkdown(meta: PostMeta, body: string): string {
 // Exclui o post (arquivo ou pasta inteira, incluindo imagens).
 export async function deletePost(id: string): Promise<void> {
   const filePath = await resolvePostFile(id);
-  const asFolder = path.join(POSTS_DIR, id);
+  const asFolder = path.join(postsRoot(), id);
   if (await exists(asFolder)) {
     await fs.rm(asFolder, { recursive: true, force: true });
   } else {
@@ -216,7 +220,7 @@ export async function duplicatePost(id: string): Promise<Post> {
 // Guarda uma imagem dentro da pasta do post e devolve o nome do arquivo.
 export async function saveImage(postId: string, filename: string, buffer: Buffer): Promise<string> {
   const safe = filename.replace(/[^a-zA-Z0-9._-]/g, '-');
-  const folder = path.join(POSTS_DIR, postId);
+  const folder = path.join(postsRoot(), postId);
   await fs.mkdir(folder, { recursive: true });
   await fs.writeFile(path.join(folder, safe), buffer);
   return safe;

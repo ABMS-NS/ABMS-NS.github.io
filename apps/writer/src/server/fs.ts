@@ -1,39 +1,73 @@
 // Configuração da ferramenta.
 //
-// Em vez de depender de uma pasta fixa, o Writer localiza a raiz do
-// monorepo subindo até encontrar a pasta `content/` — a "marca" do
-// arquivo. Isso funciona em desenvolvimento e após o build, porque
-// em ambos os casos a subida termina na mesma pasta.
+// A raiz do monorepo é descoberta nesta ordem:
+//   1. variável de ambiente WRITER_REPO_ROOT (usada pelo app desktop);
+//   2. subindo a árvore a partir do diretório atual em busca da pasta
+//      `content/` — a "marca" do arquivo.
+// Tudo é resolvido por getters para permitir trocar de workspace em
+// tempo de execução (POST /api/workspace).
+
 import path from 'node:path';
 import { existsSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import os from 'node:os';
 
-const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+let repoRootCache: string | null = null;
 
-// Sobe a árvore de diretórios desde o módulo atual até achar quem
-// contém `content/`. Se não achar, para na raiz do filesystem.
+export function setRepoRoot(dir: string): string {
+  const resolved = path.resolve(dir);
+  if (!existsSync(path.join(resolved, 'content'))) {
+    throw new Error(`A pasta escolhida não é o seu arquivo (não tem content/): ${resolved}`);
+  }
+  repoRootCache = resolved;
+  return resolved;
+}
+
+export function repoRoot(): string {
+  if (repoRootCache) return repoRootCache;
+  const env = process.env.WRITER_REPO_ROOT;
+  if (env) {
+    repoRootCache = setRepoRoot(env);
+    return repoRootCache;
+  }
+  repoRootCache = findRepoRoot(process.cwd());
+  return repoRootCache;
+}
+
+// Sobe a árvore de diretórios desde `start` até achar quem contém
+// `content/`. Se não achar, para na raiz do filesystem.
 function findRepoRoot(start: string): string {
   let dir = start;
   for (;;) {
     if (existsSync(path.join(dir, 'content'))) return dir;
     const parent = path.dirname(dir);
-    if (parent === dir) throw new Error('Não encontrei a pasta content/: rode o Writer dentro do monorepo.');
+    if (parent === dir) {
+      throw new Error('Não encontrei a pasta content/: rode o Writer dentro do monorepo.');
+    }
     dir = parent;
   }
 }
 
-export const REPO_ROOT = findRepoRoot(moduleDir);
-
 // Onde os arquivos Markdown vivem. É nesta pasta que o Writer
 // trabalha e é ela que o Git versiona.
-export const CONTENT_ROOT = path.resolve(REPO_ROOT, 'content');
+export function contentRoot(): string {
+  return path.resolve(repoRoot(), 'content');
+}
+
+export function postsRoot(): string {
+  return path.resolve(contentRoot(), 'posts');
+}
+
+// Cliente compilado (esbuild) — o servidor serve do disco, sem
+// empacotar em memória a cada boot.
+export function clientDir(): string {
+  return path.resolve(repoRoot(), 'apps/writer/dist/client');
+}
+
+// Onde o Writer guarda configuração sensível (hash da senha).
+// O Electron passa o userData(); fora dele usamos ~/.writer.
+export function dataDir(): string {
+  return process.env.WRITER_DATA_DIR ?? path.join(os.homedir(), '.writer');
+}
 
 // Porta do servidor local. Pode ser substituída por env var.
 export const PORT = Number(process.env.WRITER_PORT ?? 4322);
-
-// Pastas de cada coleção, relativas a CONTENT_ROOT.
-export const COLLECTIONS = {
-  posts: 'posts',
-  projects: 'projects',
-  notes: 'notes',
-} as const;
