@@ -34,12 +34,16 @@ function slugify(title: string): string {
     .slice(0, 60);
 }
 
-// Gera a data de hoje no formato YYYY-MM-DD (fuso local).
+// Gera a data/hora atual no formato ISO local (YYYY-MM-DDTHH:mm:ss),
+// para que posts publicados no mesmo dia sejam ordenados pela hora.
 export function today(): string {
   const d = new Date();
   const mm = String(d.getMonth() + 1).padStart(2, '0');
   const dd = String(d.getDate()).padStart(2, '0');
-  return `${d.getFullYear()}-${mm}-${dd}`;
+  const hh = String(d.getHours()).padStart(2, '0');
+  const min = String(d.getMinutes()).padStart(2, '0');
+  const ss = String(d.getSeconds()).padStart(2, '0');
+  return `${d.getFullYear()}-${mm}-${dd}T${hh}:${min}:${ss}`;
 }
 
 // Um post pode existir de duas formas:
