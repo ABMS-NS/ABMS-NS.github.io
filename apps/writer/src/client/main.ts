@@ -781,6 +781,7 @@ function mountAuth() {
     </form>`;
   document.body.appendChild(el);
 
+  authScreen = el;
   authForm = $('#auth-form', el) as HTMLFormElement;
   authPassword = $('#auth-password', el) as HTMLInputElement;
   authConfirm = $('#auth-confirm', el) as HTMLInputElement;
