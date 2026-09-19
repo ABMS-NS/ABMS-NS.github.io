@@ -780,10 +780,14 @@ th {
 ================================================================ */
 
 .prose {
-  width: min(100%, var(--reading-width));
-  margin-inline: 0;
+  /* Coluna mais estreita, inspirada na leitura editorial do Hytale:
+     bastante respiro à direita sem centralizar o texto. */
+  width: min(100%, 760px);
+  margin-left: 0;
+  margin-right: auto;
   overflow-wrap: anywhere;
   white-space: normal;
+  text-align: left;
 }
 
 /*
