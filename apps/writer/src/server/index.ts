@@ -177,8 +177,14 @@ app.post('/api/post/delete', async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as { id?: unknown };
   const id = typeof body.id === 'string' ? body.id : '';
   if (!id) return c.json({ error: 'Nenhum post informado.' }, 400);
-  await deletePost(id);
-  return c.json({ ok: true });
+  try {
+    await deletePost(id);
+    const subject = await commit(`post: delete ${id}`);
+    await push();
+    return c.json({ ok: true, subject });
+  } catch (err) {
+    return c.json({ ok: false, error: (err as Error).message }, 500);
+  }
 });
 
 app.post('/api/post/duplicate', async (c) => {
