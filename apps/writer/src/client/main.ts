@@ -457,10 +457,12 @@ postList.addEventListener('click', async (e) => {
   const id = act.getAttribute('data-id')!;
 
   if (act.getAttribute('data-act') === 'dup') {
+    if (!(await confirmNavigation())) return;
     const copy = await api<Post>('POST', '/api/post/duplicate', { id });
     await loadList();
     await openPost(copy.id);
   } else if (act.getAttribute('data-act') === 'del') {
+    if (state.current?.id === id && !(await confirmNavigation())) return;
     if (!window.confirm(`Excluir "${id}"? O arquivo (e as imagens da pasta) serão removidos — não dá para desfazer.`)) return;
     try {
       await api('POST', '/api/post/delete', { id });
@@ -650,6 +652,7 @@ async function refreshGit() {
     </div>`;
 
   $('#btn-pull')?.addEventListener('click', async () => {
+    if (!(await confirmNavigation())) return;
     try {
       await api('POST', '/api/git/pull');
       await refreshGit();
@@ -801,6 +804,7 @@ async function openSettings() {
   const setMsg = $('#set-msg', root)!;
 
   $('#set-workspace-choose', root)?.addEventListener('click', async () => {
+    if (!(await confirmNavigation())) return;
     const path = window.prompt('Caminho da nova pasta do arquivo (a que tem a pasta content/):', rootText);
     if (!path) return;
     try {
