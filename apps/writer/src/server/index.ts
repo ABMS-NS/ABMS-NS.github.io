@@ -21,6 +21,7 @@ import {
   deletePost,
   duplicatePost,
   saveImage,
+  today,
 } from './content.ts';
 import { gitStatus, commit, push, canPush, pull } from './git.ts';
 import type { PostMeta } from '../shared/types.ts';
@@ -248,7 +249,11 @@ app.post('/api/publish', async (c) => {
   try {
     await savePost(
       id,
-      { ...(body.file as Record<string, unknown>), draft: false } as unknown as PostMeta,
+      {
+        ...(body.file as Record<string, unknown>),
+        draft: false,
+        pubDate: today(),
+      } as unknown as PostMeta,
       String(body.body ?? ''),
     );
     const file = (body.file as { title?: unknown }) ?? {};
