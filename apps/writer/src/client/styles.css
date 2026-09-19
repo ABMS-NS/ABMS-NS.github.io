@@ -1281,6 +1281,7 @@ button.primary:hover:not(:disabled) {
   width: auto;
   max-width: none;
   margin-inline: 0;
+  text-align: left;
   overflow-wrap: anywhere;
   white-space: normal;
 }
