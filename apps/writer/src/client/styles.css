@@ -1280,6 +1280,15 @@ button.primary:hover:not(:disabled) {
 .preview.prose {
   width: auto;
   max-width: none;
+  margin-inline: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+/* Mantém as quebras de linha escritas no Markdown visíveis no preview,
+   em vez de transformar o parágrafo inteiro em uma linha contínua. */
+.preview.prose p {
+  white-space: pre-line;
 }
 
 .prose h1,
