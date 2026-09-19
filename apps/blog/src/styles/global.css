@@ -779,7 +779,21 @@ th {
    23. LARGURA DE LEITURA E PROSA
 ================================================================ */
 
-.prose { width: min(100%, var(--reading-width)); }
+.prose {
+  width: min(100%, var(--reading-width));
+  margin-inline: auto;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+/*
+   O Markdown deve continuar parecendo texto escrito, não uma única
+   faixa contínua. O renderer preserva as quebras de linha dentro do
+   parágrafo e o navegador passa a respeitá-las aqui.
+*/
+.prose p {
+  white-space: pre-line;
+}
 
 .prose h2 { color: var(--accent); }
 .prose h3 { color: var(--text-secondary); }
