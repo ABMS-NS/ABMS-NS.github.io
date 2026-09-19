@@ -4,10 +4,6 @@
 // CodeMirror cuida do editor e `marked` + DOMPurify do preview.
 // Quando você salva/publica, o código chama a API local (Hono),
 // que escreve os arquivos Markdown e executa o Git.
-//
-// Segurança no cliente: nada de senha em localStorage — o token de
-// sessão vive apenas em memória e operações destrutivas (publicar,
-// enviar ao GitHub, excluir, puxar) pedem a senha de novo a cada vez.
 
 import './styles.css';
 import { EditorView, basicSetup } from 'codemirror';
@@ -18,7 +14,7 @@ import { keymap } from '@codemirror/view';
 import { defaultKeymap } from '@codemirror/commands';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
-import type { Post, PostListItem, GitStatus, PostMeta, AuthStatus } from '../shared/types';
+import type { Post, PostListItem, GitStatus, PostMeta } from '../shared/types';
 
 // ------------------------------------------------------------------
 // Estado global da aplicação.
@@ -41,10 +37,6 @@ const state: {
   tagsDirty: false,
 };
 
-// Token de sessão: apenas em memória. Nunca vai para localStorage.
-let token: string | null = null;
-let authInfo: AuthStatus = { configured: false, idleTimeoutMinutes: 15, recentWindowMinutes: 5 };
-
 // ------------------------------------------------------------------
 // Utilidades
 // ------------------------------------------------------------------
@@ -63,13 +55,10 @@ async function api<T>(method: string, url: string, body?: unknown): Promise<T> {
     headers['Content-Type'] = 'application/json';
     payload = JSON.stringify(body);
   }
-  if (token) headers['Authorization'] = `Bearer ${token}`;
   const res = await fetch(url, { method, headers, body: payload });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const err = data as { code?: string; error?: string; retryAfterSec?: number };
-    if (err.code === 'locked') lockAndShow(err.error);
-    else if (err.code === 'setup-required') showAuth('setup', err.error);
+    const err = data as { error?: string };
     throw new Error(err.error ?? `Falha ${method} ${url}`);
   }
   return data as T;
@@ -106,9 +95,7 @@ app.innerHTML = `
       <span id="save-state" class="save-state" role="status"></span>
       <button id="btn-save" class="ghost" disabled>Salvar</button>
       <button id="btn-publish" class="primary" disabled>Publicar</button>
-      <span class="topbar-divider"></span>
       <button id="btn-settings" class="ghost" title="Configurações">Config</button>
-      <button id="btn-lock" class="ghost" title="Trancar o Writer">Trancar</button>
     </div>
   </header>
 
@@ -218,16 +205,13 @@ function createEditor(initialDoc: string, onChange: (doc: string) => void) {
 // ------------------------------------------------------------------
 // Preview Markdown (marked + sanitização DOMPurify)
 // ------------------------------------------------------------------
-const previewEl = $('#preview')!;
+const preview = $('#preview')!;
 
 marked.setOptions({ gfm: true, breaks: true });
 
 function renderPreview() {
-  const raw = marked.parse(currentBody());
-  // DOMPurify remove qualquer HTML perigoso antes de injetar no DOM.
-  previewEl.innerHTML = DOMPurify.sanitize(
-    typeof raw === 'string' ? raw : String(raw),
-  );
+  const raw = marked.parse(currentBody() || '*Escreva algo…*');
+  preview.innerHTML = DOMPurify.sanitize(typeof raw === 'string' ? raw : String(raw));
 }
 
 const renderPreviewDebounced = debounce(renderPreview, 250);
@@ -237,50 +221,49 @@ const renderPreviewDebounced = debounce(renderPreview, 250);
 // ------------------------------------------------------------------
 const postList = $('#post-list')!;
 const search = $('#search')! as HTMLInputElement;
-
-function renderList() {
-  const q = state.filter.toLowerCase();
-  const shown = state.posts.filter(
-    (p) =>
-      p.title.toLowerCase().includes(q) ||
-      p.tags.some((t) => t.toLowerCase().includes(q)),
-  );
-
-  postList.innerHTML = shown
-    .map(
-      (p) => `
-        <li class="post-item ${p.id === state.current?.id ? 'active' : ''}">
-          <button data-id="${p.id}" class="post-open" title="${p.title}">
-            <span class="dot ${p.draft ? 'draft' : 'pub'}" aria-hidden="true"></span>
-            <span class="title">${escapeHtml(p.title)}</span>
-            <span class="meta">${p.draft ? 'Rascunho' : 'Publicado'} · ${formatDate(p.pubDate)}</span>
-          </button>
-          <div class="actions">
-            <button data-id="${p.id}" data-act="dup" title="Duplicar">⧉</button>
-            <button data-id="${p.id}" data-act="del" title="Excluir">×</button>
-          </div>
-        </li>`,
-    )
-    .join('') || '<li class="empty-list">Nenhum post</li>';
-}
-
-async function loadList() {
-  state.posts = await api<PostListItem[]>('GET', '/api/posts');
-  renderList();
-}
-
-// ------------------------------------------------------------------
-// Abrir / salvar / criar posts
-// ------------------------------------------------------------------
-const fieldTitle = $('#field-title')! as HTMLInputElement;
-const fieldDate = $('#field-date')! as HTMLInputElement;
-const fieldDraft = $('#field-draft')! as HTMLInputElement;
-const fieldDescription = $('#field-description')! as HTMLTextAreaElement;
-const fieldTags = $('#field-tags')! as HTMLInputElement;
+const fieldTitle = $('#field-title') as HTMLInputElement;
+const fieldDate = $('#field-date') as HTMLInputElement;
+const fieldDraft = $('#field-draft') as HTMLInputElement;
+const fieldDescription = $('#field-description') as HTMLTextAreaElement;
+const fieldTags = $('#field-tags') as HTMLInputElement;
 const emptyState = $('#empty-state')!;
 const editorView = $('#editor-view')!;
 const tagChips = $('#tag-chips')!;
 const saveState = $('#save-state')!;
+
+function renderList() {
+  const q = state.filter.trim().toLowerCase();
+  const items = state.posts.filter((p) => {
+    if (!q) return true;
+    return [p.title, p.id, ...(p.tags ?? [])].join(' ').toLowerCase().includes(q);
+  });
+
+  postList.innerHTML = items
+    .map(
+      (p) => `
+      <li class="post-item">
+        <button class="post-open" data-id="${escapeHtml(p.id)}">
+          <span class="dot ${p.draft ? 'draft' : 'pub'}" title="${p.draft ? 'Rascunho' : 'Publicado'}"></span>
+          <span class="post-title">${escapeHtml(p.title || p.id)}</span>
+          <span class="post-date">${formatDate(p.pubDate)}</span>
+        </button>
+        <span class="post-actions">
+          <button data-act="dup" data-id="${escapeHtml(p.id)}" title="Duplicar">⧉</button>
+          <button data-act="del" data-id="${escapeHtml(p.id)}" title="Excluir">×</button>
+        </span>
+      </li>`,
+    )
+    .join('');
+}
+
+async function loadList() {
+  try {
+    state.posts = await api<PostListItem[]>('GET', '/api/posts');
+  } catch {
+    state.posts = [];
+  }
+  renderList();
+}
 
 async function openPost(id: string) {
   state.current = await api<Post>('GET', `/api/post/${encodeURIComponent(id)}`);
@@ -346,16 +329,12 @@ async function saveCurrent(): Promise<boolean> {
   }
 }
 
+// ------------------------------------------------------------------
+// Publicar (compensa no site: salva, commit e push ao GitHub)
+// ------------------------------------------------------------------
 async function publishCurrent() {
   if (!state.current) return;
   const meta = { ...currentMeta(), draft: false };
-  const pw = await askPassword({
-    title: 'Publicar no site',
-    message: `O post será salvo, marcado como publicado, commitado e enviado ao GitHub. Autorize com a sua senha.`,
-    confirm: 'Publicar e enviar',
-    danger: true,
-  });
-  if (pw === null) return;
   fieldDraft.checked = false;
   setSaving('Publicando...');
   try {
@@ -363,7 +342,6 @@ async function publishCurrent() {
       id: state.current.id,
       file: meta,
       body: currentBody(),
-      password: pw,
     });
     setSaved(true, `Publicado ✓ ${res.subject}`);
     clearAutosave();
@@ -371,6 +349,7 @@ async function publishCurrent() {
     await refreshGit();
   } catch (err) {
     setSaved(false, (err as Error).message);
+    setSaving('');
   }
 }
 
@@ -410,7 +389,7 @@ tagChips.addEventListener('click', (e) => {
 });
 
 // ------------------------------------------------------------------
-// Modais (senha / confirmação)
+// Modal simples (confirmação)
 // ------------------------------------------------------------------
 function modal(title: string, body: string) {
   const root = document.createElement('div');
@@ -433,58 +412,6 @@ function modal(title: string, body: string) {
   return { root, close };
 }
 
-// Pede a senha com confirmação explícita. Resolve com a senha digitada,
-// ou `null` se o usuário cancelou.
-function askPassword(opts: {
-  title: string;
-  message: string;
-  confirm: string;
-  danger?: boolean;
-}): Promise<string | null> {
-  return new Promise((resolve) => {
-    const { root, close } = modal(
-      opts.title,
-      `
-      <p class="modal-message">${escapeHtml(opts.message)}</p>
-      <div class="modal-msg" id="pw-msg" role="alert"></div>
-      <label class="auth-field">
-        <span>Senha</span>
-        <input id="pw-input" type="password" autocomplete="off" spellcheck="false" autofocus />
-      </label>
-      <div class="modal-actions">
-        <button class="ghost" id="pw-cancel">Cancelar</button>
-        <button class="${opts.danger ? 'danger' : 'primary'}" id="pw-ok">${escapeHtml(opts.confirm)}</button>
-      </div>`,
-    );
-    const pwInput = $('#pw-input', root) as HTMLInputElement;
-    const pwMsg = $('#pw-msg', root)!;
-
-    const finish = () => {
-      close();
-      resolve(pwInput.value);
-    };
-    $('#pw-cancel', root)?.addEventListener('click', () => {
-      close();
-      resolve(null);
-    });
-    $('#pw-ok', root)?.addEventListener('click', (e) => {
-      if (pwInput.value) return finish();
-      pwMsg.textContent = 'Digite a senha para confirmar.';
-      pwInput.focus();
-    });
-    pwInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        if (pwInput.value) finish();
-        else {
-          pwMsg.textContent = 'Digite a senha para confirmar.';
-          pwInput.focus();
-        }
-      }
-    });
-  });
-}
-
 // ------------------------------------------------------------------
 // Botões principais
 // ------------------------------------------------------------------
@@ -498,15 +425,6 @@ $('#btn-new')!.addEventListener('click', async () => {
 
 $('#btn-save')!.addEventListener('click', () => saveCurrent());
 $('#btn-publish')!.addEventListener('click', () => publishCurrent());
-$('#btn-lock')!.addEventListener('click', async () => {
-  try {
-    await api('POST', '/api/auth/lock');
-  } catch {
-    /* token já inválido — seguimos para a tela de bloqueio */
-  }
-  token = null;
-  showAuth('lock', 'O Writer foi trancado.');
-});
 $('#btn-settings')!.addEventListener('click', () => openSettings());
 
 // ------------------------------------------------------------------
@@ -525,15 +443,9 @@ postList.addEventListener('click', async (e) => {
     await loadList();
     await openPost(copy.id);
   } else if (act.getAttribute('data-act') === 'del') {
-    const pw = await askPassword({
-      title: 'Excluir post',
-      message: `Excluir "${id}"? O arquivo (e as imagens da pasta) serão removidos — não dá para desfazer.`,
-      confirm: 'Excluir de vez',
-      danger: true,
-    });
-    if (pw === null) return;
+    if (!window.confirm(`Excluir "${id}"? O arquivo (e as imagens da pasta) serão removidos — não dá para desfazer.`)) return;
     try {
-      await api('POST', '/api/post/delete', { id, password: pw });
+      await api('POST', '/api/post/delete', { id });
       if (state.current?.id === id) {
         emptyState.hidden = false;
         editorView.hidden = true;
@@ -578,11 +490,8 @@ $('#file-image')!.addEventListener('change', async (e) => {
   if (!file) return;
   const form = new FormData();
   form.append('file', file);
-  const headers: Record<string, string> = {};
-  if (token) headers['Authorization'] = `Bearer ${token}`;
   const res = await fetch(`/api/post/${state.current.id}/image`, {
     method: 'POST',
-    headers,
     body: form,
   });
   const data = await res.json();
@@ -636,14 +545,8 @@ async function refreshGit() {
     </div>`;
 
   $('#btn-pull')?.addEventListener('click', async () => {
-    const pw = await askPassword({
-      title: 'Puxar do GitHub',
-      message: 'Sincronizar com o repositório remoto exige a sua senha para evitar mudanças não autorizadas.',
-      confirm: 'Puxar',
-    });
-    if (pw === null) return;
     try {
-      await api('POST', '/api/git/pull', { password: pw });
+      await api('POST', '/api/git/pull');
       await refreshGit();
       await loadList();
       if (state.current) await openPost(state.current.id);
@@ -671,6 +574,7 @@ function setSaved(ok: boolean, message?: string) {
 }
 
 function setSaving(msg: string) {
+  if (!msg) return;
   saveState.textContent = msg;
   saveState.className = 'save-state err';
 }
@@ -739,311 +643,55 @@ function restoreAutosave() {
 }
 
 // ------------------------------------------------------------------
-// Tela de senha (setup / bloqueio)
-// ------------------------------------------------------------------
-let authScreen!: HTMLElement;
-let authForm!: HTMLFormElement;
-let authPassword!: HTMLInputElement;
-let authConfirm!: HTMLInputElement;
-let authError!: HTMLElement;
-let authTitle!: HTMLElement;
-let authSub!: HTMLElement;
-let authSubmit!: HTMLButtonElement;
-let authExtra!: HTMLElement;
-let authNote!: HTMLElement;
-let authReset!: HTMLAnchorElement;
-type AuthMode = 'setup' | 'lock';
-
-function mountAuth() {
-  const el = document.createElement('div');
-  el.id = 'auth-screen';
-  el.className = 'auth-screen';
-  el.hidden = true;
-  el.innerHTML = `
-    <form id="auth-form" class="auth-card" autocomplete="on">
-      <div class="auth-prompt" aria-hidden="true">&gt;_</div>
-      <h1 class="auth-title" id="auth-title">Bem-vindo de volta</h1>
-      <p class="auth-sub" id="auth-sub">O Writer está trancado. Digite a senha principal.</p>
-      <div class="modal-msg" id="auth-error" role="alert"></div>
-      <div class="auth-extra" id="auth-extra" hidden>
-        <label class="auth-field">
-          <span>Confirme a senha</span>
-          <input id="auth-confirm" type="password" autocomplete="new-password" spellcheck="false" />
-        </label>
-        <p class="auth-note" id="auth-note"></p>
-      </div>
-      <label class="auth-field">
-        <span>Senha</span>
-        <input id="auth-password" type="password" autocomplete="current-password" spellcheck="false" />
-      </label>
-      <button id="auth-submit" class="primary" type="submit">Entrar</button>
-      <div class="auth-reset"><a href="#" id="auth-reset">Esqueceu a senha?</a></div>
-    </form>`;
-  document.body.appendChild(el);
-
-  authScreen = el;
-  authForm = $('#auth-form', el) as HTMLFormElement;
-  authPassword = $('#auth-password', el) as HTMLInputElement;
-  authConfirm = $('#auth-confirm', el) as HTMLInputElement;
-  authError = $('#auth-error', el)!;
-  authTitle = $('#auth-title', el)!;
-  authSub = $('#auth-sub', el)!;
-  authSubmit = $('#auth-submit', el) as HTMLButtonElement;
-  authExtra = $('#auth-extra', el)!;
-  authNote = $('#auth-note', el)!;
-  authReset = $('#auth-reset', el) as HTMLAnchorElement;
-
-  authForm.addEventListener('submit', submitAuth);
-  authReset.addEventListener('click', (e) => {
-    e.preventDefault();
-    resetPasswordFlow();
-  });
-}
-
-function showAuth(mode: AuthMode, message?: string) {
-  const isSetup = mode === 'setup';
-  authExtra.hidden = !isSetup;
-  authTitle.textContent = isSetup ? 'Defina a senha do Writer' : 'Bem-vindo de volta';
-  authSub.textContent = isSetup
-    ? 'Ela protege as ações que mexem no seu arquivo: publicar, enviar ao GitHub e excluir.'
-    : 'O Writer está trancado. Digite a senha principal para continuar.';
-  authSubmit.textContent = isSetup ? 'Criar e entrar' : 'Entrar';
-  authPassword.autocomplete = isSetup ? 'new-password' : 'current-password';
-  authPassword.type = isSetup ? 'password' : 'password';
-  authNote.textContent =
-    'A senha fica apenas na sua máquina como um hash (scrypt). Sem ela, nada sai ao GitHub.';
-  authReset.style.display =
-    authInfo.configured || isSetup ? 'block' : 'none';
-  authScreen.hidden = false;
-  if (message) setAuthError(message);
-  else setAuthError('');
-  authPassword.value = '';
-  authConfirm.value = '';
-  setTimeout(() => authPassword.focus(), 0);
-}
-
-function hideAuth() {
-  authScreen.hidden = true;
-  setAuthError('');
-}
-
-function setAuthError(msg: string) {
-  authError.textContent = msg;
-  authError.hidden = !msg;
-}
-
-function lockAndShow(message?: string) {
-  token = null;
-  showAuth('lock', message);
-}
-
-async function submitAuth(e: SubmitEvent) {
-  e.preventDefault();
-  const pw = authPassword.value;
-  if (authExtra.hidden) {
-    // Bloqueio: destrancar.
-    try {
-      const r = await api<{ token: string }>('POST', '/api/auth/unlock', { password: pw });
-      token = r.token;
-      hideAuth();
-      await resume();
-    } catch (err) {
-      setAuthError((err as Error).message);
-      authPassword.value = '';
-      authPassword.focus();
-    }
-    return;
-  }
-  // Configuração inicial: criar a senha.
-  if (pw.length < 8) return setAuthError('A senha precisa ter ao menos 8 caracteres.');
-  if (pw !== authConfirm.value) return setAuthError('As senhas não conferem.');
-  try {
-    const r = await api<{ token: string }>('POST', '/api/auth/setup', { password: pw });
-    token = r.token;
-    authInfo.configured = true;
-    hideAuth();
-    await resume();
-  } catch (err) {
-    setAuthError((err as Error).message);
-  }
-}
-
-async function resetPasswordFlow() {
-  const { root, close } = modal('Redefinir senha', `
-    <p class="modal-message">
-      Isso apaga a senha atual e o Writer volta para a primeira tela de
-      configuração, onde você define uma nova. Os posts não são tocados —
-      apenas a senha é removida desta máquina.
-    </p>
-    <div class="modal-actions">
-      <button class="ghost" id="reset-cancel">Cancelar</button>
-      <button class="danger" id="reset-ok">Redefinir senha</button>
-    </div>`);
-  $('#reset-cancel', root)?.addEventListener('click', close);
-  $('#reset-ok', root)?.addEventListener('click', async () => {
-    try {
-      await api('POST', '/api/auth/reset');
-    } catch (err) {
-      setAuthError((err as Error).message);
-    }
-    token = null;
-    authInfo.configured = false;
-    close();
-    showAuth('setup');
-  });
-}
-
-// ------------------------------------------------------------------
-// Configurações
+// Configurações (pasta de trabalho)
 // ------------------------------------------------------------------
 async function openSettings() {
-  let settings: {
-    idleTimeoutMinutes: number;
-    recentWindowMinutes: number;
-    workspace: { root: string; contentRoot: string };
-  } | null = null;
+  let rootText = '';
   try {
-    settings = await api('GET', '/api/settings');
+    const s = await api<{ workspace: { root: string } }>('GET', '/api/settings');
+    rootText = s.workspace.root;
   } catch {
-    /* sem acesso ainda */
+    /* servidor indisponível */
   }
   const { root, close } = modal(
     'Configurações',
     `
     <section class="set-group">
-      <h3>Bloqueio por inatividade</h3>
-      <label class="auth-field"><span>Travar depois de</span>
-        <select id="set-idle"></select>
-      </label>
-      <label class="auth-field"><span>Exigir senha de novo em operações (publicar/push/excluir) após</span>
-        <select id="set-recent"></select>
-      </label>
-      <label class="auth-field"><span>Senha para aplicar</span>
-        <input id="set-pw" type="password" autocomplete="off" spellcheck="false" />
-      </label>
+      <h3>Pasta de trabalho</h3>
+      <code id="set-workspace" class="set-workspace">${escapeHtml(rootText)}</code>
+      <p class="git-note">A pasta que contém a sua pasta <code>content/</code> com os posts.</p>
       <div class="modal-msg" id="set-msg" role="alert"></div>
       <div class="modal-actions">
-        <button class="primary" id="set-apply">Aplicar</button>
-      </div>
-    </section>
-    <section class="set-group">
-      <h3>Trocar a senha</h3>
-      <label class="auth-field"><span>Senha atual</span>
-        <input id="set-cur" type="password" autocomplete="current-password" />
-      </label>
-      <label class="auth-field"><span>Nova senha (mín. 8)</span>
-        <input id="set-new" type="password" autocomplete="new-password" />
-      </label>
-      <label class="auth-field"><span>Confirme a nova senha</span>
-        <input id="set-new2" type="password" autocomplete="new-password" />
-      </label>
-      <div class="modal-msg" id="set-change-msg" role="alert"></div>
-      <div class="modal-actions">
-        <button class="ghost" id="set-change">Trocar senha</button>
-      </div>
-    </section>
-    <section class="set-group">
-      <h3>Pasta de trabalho</h3>
-      <code id="set-workspace" class="set-workspace"></code>
-      <div class="modal-actions">
-        <button class="ghost" id="set-workspace-choose">Trocar pasta (exige senha)</button>
+        <button class="ghost" id="set-workspace-choose">Trocar pasta</button>
       </div>
     </section>`,
   );
-
   const setMsg = $('#set-msg', root)!;
-  const setChangeMsg = $('#set-change-msg', root)!;
-  const idleSel = $('#set-idle', root) as HTMLSelectElement;
-  const recentSel = $('#set-recent', root) as HTMLSelectElement;
-
-  idleSel.innerHTML = [
-    [5, '5 minutos'],
-    [15, '15 minutos'],
-    [30, '30 minutos'],
-    [60, '1 hora'],
-    [-1, 'Nunca (não recomendado)'],
-  ]
-    .map(([v, label]) => `<option value="${v}">${label}</option>`)
-    .join('');
-  recentSel.innerHTML = [
-    [1, '1 minuto'],
-    [5, '5 minutos'],
-    [10, '10 minutos'],
-    [30, '30 minutos'],
-    [-1, 'Nunca'],
-  ]
-    .map(([v, label]) => `<option value="${v}">${label}</option>`)
-    .join('');
-
-  if (settings) {
-    idleSel.value = String(settings.idleTimeoutMinutes);
-    recentSel.value = String(settings.recentWindowMinutes);
-    $('#set-workspace', root)!.textContent = settings.workspace.root;
-  }
 
   $('#set-workspace-choose', root)?.addEventListener('click', async () => {
-    const pw = await askPassword({
-      title: 'Trocar pasta de trabalho',
-      message: 'Escolha a nova pasta do seu arquivo (a que tem a pasta content/). A senha é pedida para autorizar a mudança.',
-      confirm: 'Continuar',
-    });
-    if (pw === null) return;
+    const path = window.prompt('Caminho da nova pasta do arquivo (a que tem a pasta content/):', rootText);
+    if (!path) return;
     try {
       const r = await api<{ ok: boolean; root?: string; error?: string }>('POST', '/api/workspace', {
-        password: pw,
+        path,
       });
       if (!r.ok || !r.root) {
-        setMsgState(setMsg, r.error ?? 'Não foi possível trocar a pasta.', false);
+        setMsg.textContent = r.error ?? 'Não foi possível trocar a pasta.';
+        setMsg.className = 'modal-msg';
         return;
       }
       $('#set-workspace', root)!.textContent = r.root;
-      setMsgState(setMsg, 'Pasta de trabalho trocada. Puxando listagem...', true);
+      setMsg.textContent = 'Pasta de trabalho trocada. Puxando listagem...';
+      setMsg.className = 'modal-msg ok';
       await loadList();
       await refreshGit();
     } catch (err) {
-      setMsgState(setMsg, (err as Error).message, false);
+      setMsg.textContent = (err as Error).message;
+      setMsg.className = 'modal-msg';
     }
   });
 
-  $('#set-apply', root)?.addEventListener('click', async () => {
-    const pw = ($('#set-pw', root) as HTMLInputElement).value;
-    if (!pw) return setMsgState(setMsg, 'Digite sua senha.', false);
-    try {
-      const r = await api<AuthStatus>('POST', '/api/settings', {
-        idleTimeoutMinutes: Number(idleSel.value),
-        recentWindowMinutes: Number(recentSel.value),
-        password: pw,
-      });
-      authInfo = r;
-      ($('#set-pw', root) as HTMLInputElement).value = '';
-      setMsgState(setMsg, 'Aplicado.', true);
-    } catch (err) {
-      setMsgState(setMsg, (err as Error).message, false);
-    }
-  });
-
-  $('#set-change', root)?.addEventListener('click', async () => {
-    const cur = ($('#set-cur', root) as HTMLInputElement).value;
-    const nw = ($('#set-new', root) as HTMLInputElement).value;
-    const nw2 = ($('#set-new2', root) as HTMLInputElement).value;
-    if (!cur) return setMsgState(setChangeMsg, 'Digite a senha atual.', false);
-    if (nw.length < 8) return setMsgState(setChangeMsg, 'A nova senha precisa de ao menos 8 caracteres.', false);
-    if (nw !== nw2) return setMsgState(setChangeMsg, 'As senhas não conferem.', false);
-    try {
-      await api('POST', '/api/auth/password', { password: cur, newPassword: nw });
-      close();
-      token = null;
-      showAuth('lock', 'Senha trocada. Use a nova senha para destrancar.');
-    } catch (err) {
-      setMsgState(setChangeMsg, (err as Error).message, false);
-    }
-  });
-}
-
-function setMsgState(el: HTMLElement, msg: string, ok: boolean) {
-  el.textContent = msg;
-  el.className = ok ? 'modal-msg ok' : 'modal-msg';
-  el.hidden = false;
+  void close;
 }
 
 // ------------------------------------------------------------------
@@ -1055,33 +703,6 @@ async function resume() {
   restoreAutosave();
 }
 
-async function pollSession() {
-  if (!token) return;
-  try {
-    await api('GET', '/api/auth/session');
-  } catch {
-    /* api() mostra a tela de bloqueio quando o servidor devolve 401 */
-  }
-}
-
-async function init() {
-  mountAuth();
-  let status: AuthStatus & { sessionValid: boolean };
-  try {
-    status = await api('GET', '/api/auth/status');
-  } catch {
-    showAuth('lock', 'Não consegui falar com o servidor local do Writer.');
-    return;
-  }
-  authInfo = status;
-  if (!status.configured) {
-    showAuth('setup', 'Primeira vez por aqui? Defina uma senha para proteger o seu arquivo.');
-    return;
-  }
-  showAuth('lock');
-}
-
-// Atualiza os contadores do Git e o estado da sessão periodicamente.
+// Atualiza os contadores do Git periodicamente.
 setInterval(refreshGit, 20000);
-setInterval(pollSession, 30000);
-init();
+resume();

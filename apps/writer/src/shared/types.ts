@@ -41,10 +41,3 @@ export interface GitStatus {
   ahead: number;
   lastCommit: { hash: string; date: string; subject: string } | null;
 }
-
-// Estado de autenticação do Writer.
-export interface AuthStatus {
-  configured: boolean;
-  idleTimeoutMinutes: number; // -1 = nunca
-  recentWindowMinutes: number;
-}

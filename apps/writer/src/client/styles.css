@@ -138,13 +138,6 @@ textarea:focus-visible {
   min-width: 0;
 }
 
-.topbar-divider {
-  width: 1px;
-  height: 22px;
-  margin: 0 3px;
-  background: var(--green-800);
-}
-
 .save-state {
   max-width: 250px;
   overflow: hidden;
@@ -790,114 +783,8 @@ button:disabled {
 }
 
 /* ================================================================
-   AUTENTICAÇÃO — tela de senha e bloqueio
-================================================================ */
-
-.auth-screen {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  display: grid;
-  place-items: center;
-  background: var(--bg);
-  background-image:
-    radial-gradient(1200px 500px at 20% -10%, rgba(34, 160, 110, 0.14), transparent 60%),
-    radial-gradient(900px 420px at 110% 110%, rgba(21, 90, 65, 0.14), transparent 60%);
-}
-
-.auth-card {
-  width: min(92vw, 400px);
-  padding: 30px;
-  border: 1px solid var(--border-strong);
-  border-radius: 0;
-  background: var(--bg-elevated);
-  box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.8), 0 0 30px rgba(62, 207, 142, 0.06);
-}
-
-.auth-prompt {
-  margin-bottom: 8px;
-  color: var(--green-300);
-  font-family: var(--font-mono);
-  font-size: 30px;
-  line-height: 1;
-  text-shadow: 0 0 12px rgba(62, 207, 142, 0.45);
-}
-
-.auth-title {
-  margin: 0 0 4px;
-  color: var(--green-400);
-  font-family: var(--font-serif);
-  font-size: 22px;
-  letter-spacing: 0.01em;
-}
-
-.auth-sub {
-  margin: 0 0 16px;
-  color: var(--text-muted);
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.auth-field {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  margin-bottom: 12px;
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-}
-
-.auth-field input,
-.auth-field select {
-  width: 100%;
-  padding: 9px 11px;
-  border: 1px solid var(--green-800);
-  border-radius: 0;
-  outline: 0;
-  background: var(--bg-soft);
-  color: var(--text);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  letter-spacing: 0.02em;
-  text-transform: none;
-}
-
-.auth-field input:focus,
-.auth-field select:focus {
-  border-color: var(--green-400);
-  box-shadow: 0 0 0 1px rgba(62, 207, 142, 0.25);
-}
-
-.auth-extra {
-  margin-bottom: 4px;
-}
-
-.auth-note {
-  margin: 0 0 12px;
-  color: var(--text-muted);
-  font-size: 10px;
-  line-height: 1.6;
-}
-
-.auth-reset {
-  margin-top: 14px;
-  text-align: center;
-}
-
-.auth-reset a {
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: 10px;
-}
-
-.auth-reset a:hover { color: var(--green-300); }
-
-/* ================================================================
    MODAIS
-================================================================ */
+=============================================================== */
 
 .modal-backdrop {
   position: fixed;

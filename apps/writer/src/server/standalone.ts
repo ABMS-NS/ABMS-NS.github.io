@@ -1,6 +1,6 @@
-// Entry de execução parada (web/npm dev e bundle CJS).
-// O app desktop (Electron) requer este mesmo bundle e chama
-// startWriterServer() sem auto-pitar, usando WRITER_IN_PROCESS.
+// Entry de execução (web/npm dev e bundle CJS). Em NODE_ENV=test ou
+// WRITER_IN_PROCESS=1, apenas expõe startWriterServer para quem quiser
+// embutir o servidor no próprio processo.
 import { startWriterServer } from './index.ts';
 export * from './index.ts';
 

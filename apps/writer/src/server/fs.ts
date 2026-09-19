@@ -1,7 +1,7 @@
 // Configuração da ferramenta.
 //
 // A raiz do monorepo é descoberta nesta ordem:
-//   1. variável de ambiente WRITER_REPO_ROOT (usada pelo app desktop);
+//   1. variável de ambiente WRITER_REPO_ROOT;
 //   2. subindo a árvore a partir do diretório atual em busca da pasta
 //      `content/` — a "marca" do arquivo.
 // Tudo é resolvido por getters para permitir trocar de workspace em
@@ -9,7 +9,6 @@
 
 import path from 'node:path';
 import { existsSync } from 'node:fs';
-import os from 'node:os';
 
 let repoRootCache: string | null = null;
 
@@ -61,12 +60,6 @@ export function postsRoot(): string {
 // empacotar em memória a cada boot.
 export function clientDir(): string {
   return path.resolve(repoRoot(), 'apps/writer/dist/client');
-}
-
-// Onde o Writer guarda configuração sensível (hash da senha).
-// O Electron passa o userData(); fora dele usamos ~/.writer.
-export function dataDir(): string {
-  return process.env.WRITER_DATA_DIR ?? path.join(os.homedir(), '.writer');
 }
 
 // Porta do servidor local. Pode ser substituída por env var.
