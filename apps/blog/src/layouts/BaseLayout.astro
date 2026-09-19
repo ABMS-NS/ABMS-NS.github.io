@@ -32,7 +32,7 @@ const {
 // https://molinete-magico.github.io/, não na raiz).
 const origin = new URL(Astro.site ?? 'http://localhost:4321').origin;
 const canonical = new URL(withBase(canonicalPath), origin).toString();
-const siteTitle = title ? `${title} · arquivo` : 'arquivo';
+const siteTitle = title === 'Início' ? 'Alison · arquivo' : `${title} · Alison · arquivo`;
 const ogImageUrl = ogImage ?? new URL(withBase('/og.png'), origin).toString();
 ---
 
