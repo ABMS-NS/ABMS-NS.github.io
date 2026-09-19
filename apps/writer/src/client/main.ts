@@ -127,12 +127,19 @@ app.innerHTML = `
 
       <div class="split">
         <div class="pane">
-          <div class="pane-label">Markdown <button id="btn-image" class="ghost tiny">+ imagem</button></div>
+          <div class="pane-label">
+            <span>Escrita</span>
+            <button id="btn-image" class="ghost tiny">+ imagem</button>
+          </div>
           <input id="file-image" type="file" accept="image/*" hidden />
           <div id="cm-host" class="cm-host"></div>
         </div>
+        <div id="split-divider" class="split-divider" role="separator" aria-orientation="vertical" aria-label="Redimensionar escrita e preview" tabindex="0"></div>
         <div class="pane">
-          <div class="pane-label">Preview</div>
+          <div class="pane-label">
+            <span>Preview</span>
+            <span class="pane-hint">arraste a divisão</span>
+          </div>
           <article id="preview" class="preview prose"></article>
         </div>
       </div>
@@ -193,6 +200,7 @@ function createEditor(initialDoc: string, onChange: (doc: string) => void) {
             state.dirty.body = true;
             onChange(u.state.doc.toString());
             scheduleAutosave();
+            setSaved(false, 'Alterações não salvas');
           }
         }),
       ],
@@ -274,6 +282,7 @@ async function openPost(id: string) {
   fieldDraft.checked = p.file.draft;
   fieldDescription.value = p.file.description;
   tags = p.file.tags ?? [];
+  state.tagsDirty = false;
   renderTags();
   renderList();
 
@@ -319,6 +328,7 @@ async function saveCurrent(): Promise<boolean> {
       body: currentBody(),
     });
     state.dirty = { title: false, body: false, meta: false };
+    state.tagsDirty = false;
     clearAutosave();
     setSaved(true);
     await loadList();
@@ -375,6 +385,8 @@ fieldTags.addEventListener('keydown', (e) => {
     tags.push(t);
     renderTags();
     state.tagsDirty = true;
+    scheduleAutosave();
+    setSaved(false, 'Alterações não salvas');
   }
   fieldTags.value = '';
 });
@@ -385,6 +397,8 @@ tagChips.addEventListener('click', (e) => {
   const label = btn.getAttribute('data-rm');
   tags = tags.filter((t) => t !== label);
   state.tagsDirty = true;
+  scheduleAutosave();
+  setSaved(false, 'Alterações não salvas');
   renderTags();
 });
 
@@ -416,6 +430,7 @@ function modal(title: string, body: string) {
 // Botões principais
 // ------------------------------------------------------------------
 $('#btn-new')!.addEventListener('click', async () => {
+  if (!(await confirmNavigation())) return;
   const title = window.prompt('Título do novo post:')?.trim();
   if (!title) return;
   const post = await api<Post>('POST', '/api/post', { title });
@@ -432,7 +447,10 @@ $('#btn-settings')!.addEventListener('click', () => openSettings());
 // ------------------------------------------------------------------
 postList.addEventListener('click', async (e) => {
   const openBtn = (e.target as HTMLElement).closest('.post-open') as HTMLElement | null;
-  if (openBtn) return openPost(openBtn.getAttribute('data-id')!);
+  if (openBtn) {
+    if (!(await confirmNavigation())) return;
+    return openPost(openBtn.getAttribute('data-id')!);
+  }
 
   const act = (e.target as HTMLElement).closest('[data-act]') as HTMLElement | null;
   if (!act) return;
@@ -466,16 +484,103 @@ search.addEventListener('input', () => {
 // Marca os campos de metadados como sujos ao editar
 fieldTitle.addEventListener('input', () => {
   state.dirty.title = true;
+  scheduleAutosave();
+  setSaved(false, 'Alterações não salvas');
 });
 fieldDate.addEventListener('input', () => {
   state.dirty.meta = true;
+  scheduleAutosave();
+  setSaved(false, 'Alterações não salvas');
 });
 fieldDraft.addEventListener('change', () => {
   state.dirty.meta = true;
+  scheduleAutosave();
+  setSaved(false, 'Alterações não salvas');
 });
 fieldDescription.addEventListener('input', () => {
   state.dirty.meta = true;
+  scheduleAutosave();
+  setSaved(false, 'Alterações não salvas');
 });
+
+// ------------------------------------------------------------------
+// Navegação segura + divisão redimensionável
+// ------------------------------------------------------------------
+function hasUnsavedChanges() {
+  return Boolean(
+    state.current &&
+      (state.dirty.title || state.dirty.body || state.dirty.meta || state.tagsDirty),
+  );
+}
+
+async function confirmNavigation(): Promise<boolean> {
+  if (!hasUnsavedChanges()) return true;
+  const saveFirst = window.confirm(
+    'Há alterações não salvas neste post.\n\nOK = salvar e continuar\nCancelar = permanecer no post',
+  );
+  if (!saveFirst) return false;
+  return saveCurrent();
+}
+
+const split = $('.split')!;
+const splitDivider = $('#split-divider')!;
+let splitRatio = 60;
+
+function applySplitRatio() {
+  split.style.setProperty('--editor-pane', `${splitRatio}%`);
+  splitDivider.setAttribute('aria-valuenow', String(splitRatio));
+}
+
+function updateSplitFromPointer(clientX: number) {
+  const rect = split.getBoundingClientRect();
+  if (!rect.width) return;
+  const ratio = ((clientX - rect.left) / rect.width) * 100;
+  splitRatio = Math.max(45, Math.min(75, Math.round(ratio)));
+  applySplitRatio();
+}
+
+splitDivider.addEventListener('pointerdown', (event) => {
+  if (window.matchMedia('(max-width: 780px)').matches) return;
+  splitDivider.setPointerCapture(event.pointerId);
+  splitDivider.classList.add('dragging');
+});
+
+splitDivider.addEventListener('pointermove', (event) => {
+  if (!splitDivider.hasPointerCapture(event.pointerId)) return;
+  updateSplitFromPointer(event.clientX);
+});
+
+splitDivider.addEventListener('pointerup', (event) => {
+  splitDivider.releasePointerCapture(event.pointerId);
+  splitDivider.classList.remove('dragging');
+});
+
+splitDivider.addEventListener('dblclick', () => {
+  splitRatio = 60;
+  applySplitRatio();
+});
+
+splitDivider.addEventListener('keydown', (event) => {
+  if (event.key === 'ArrowLeft') {
+    event.preventDefault();
+    splitRatio = Math.max(45, splitRatio - 5);
+    applySplitRatio();
+  } else if (event.key === 'ArrowRight') {
+    event.preventDefault();
+    splitRatio = Math.min(75, splitRatio + 5);
+    applySplitRatio();
+  } else if (event.key === 'Home') {
+    event.preventDefault();
+    splitRatio = 45;
+    applySplitRatio();
+  } else if (event.key === 'End') {
+    event.preventDefault();
+    splitRatio = 75;
+    applySplitRatio();
+  }
+});
+
+applySplitRatio();
 
 // ------------------------------------------------------------------
 // Imagens
@@ -587,11 +692,11 @@ let autosaveTimer: ReturnType<typeof setTimeout> | null = null;
 
 function scheduleAutosave() {
   if (autosaveTimer) clearTimeout(autosaveTimer);
-  autosaveTimer = setTimeout(writeAutosave, 1500);
+  autosaveTimer = setTimeout(writeAutosave, 900);
 }
 
 function writeAutosave() {
-  if (!state.current) return;
+  if (!state.current || !hasUnsavedChanges()) return;
   try {
     localStorage.setItem(
       LS_KEY,
@@ -603,6 +708,7 @@ function writeAutosave() {
         description: fieldDescription.value,
         tags,
         body: currentBody(),
+        updatedAt: Date.now(),
       }),
     );
   } catch {
@@ -615,6 +721,23 @@ function clearAutosave() {
   localStorage.removeItem(LS_KEY);
 }
 
+function persistRecovery() {
+  if (hasUnsavedChanges()) writeAutosave();
+}
+
+window.addEventListener('pagehide', persistRecovery);
+
+window.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') persistRecovery();
+});
+
+window.addEventListener('beforeunload', (event) => {
+  if (!hasUnsavedChanges()) return;
+  writeAutosave();
+  event.preventDefault();
+  event.returnValue = '';
+});
+
 function restoreAutosave() {
   const saved = localStorage.getItem(LS_KEY);
   if (!saved) {
@@ -623,6 +746,11 @@ function restoreAutosave() {
   }
   try {
     const s = JSON.parse(saved);
+    if (!s?.id || typeof s.body !== 'string') {
+      localStorage.removeItem(LS_KEY);
+      return;
+    }
+
     // Reabre o post e aplica o conteúdo não salvo por cima.
     openPost(s.id)
       .then(() => {
@@ -632,9 +760,13 @@ function restoreAutosave() {
         fieldDescription.value = s.description ?? '';
         tags = s.tags ?? [];
         renderTags();
-        cmView?.dispatch({ changes: { from: 0, to: cmView.state.doc.length, insert: s.body ?? '' } });
+        cmView?.dispatch({
+          changes: { from: 0, to: cmView.state.doc.length, insert: s.body },
+        });
         renderPreview();
-        setSaved(false, 'Retomado do autosave');
+        state.dirty = { title: true, body: true, meta: true };
+        state.tagsDirty = true;
+        setSaved(false, 'Recuperado automaticamente — ainda não salvo');
       })
       .catch(() => localStorage.removeItem(LS_KEY));
   } catch {
