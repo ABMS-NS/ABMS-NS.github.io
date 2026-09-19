@@ -1,9 +1,10 @@
 ---
-title: 'Devlog blog #2'
+title: 'Devlog blog #2 - Bala tomada'
 description: Alguns problemas
 pubDate: '2026-09-19'
 tags:
   - devlog
+  - blog
 draft: false
 updatedDate: '2026-09-19'
 ---
